@@ -1,0 +1,11 @@
+[project]
+name = "claude-brain"
+version = "0.1.0"
+description = "Notion → Brain daemon → Claude Code 个人异步任务自动化系统"
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+brain = "brain:main"

@@ -79,11 +79,48 @@
 
 系统中存在两种 Claude Code 角色，通过 Notion Task 的 `task_type` 字段区分，Brain 根据类型决定启动方式。
 
-### 3.1 Planner CC（设计阶段）
+### 3.1 权限管理原则
+
+工具权限通过 CC 启动时的 CLI 参数硬性控制，不依赖 CLAUDE.md 中的 prompt 约束。MCP 工具命名格式为 `mcp__{server_name}__{tool_name}`，支持通配符。
+
+所有角色的工具配置集中在 `config.yaml` 中维护，Brain 启动 CC 时动态读取并组装参数：
+
+```yaml
+# ~/claude-brain/config.yaml
+roles:
+  planner:
+    allowed_tools:
+      - Read
+      - Write
+      - Edit
+      - mcp__notion__*
+    disallowed_tools:
+      - Bash          # Planner 不需要执行 shell 命令
+
+  executor:
+    allowed_tools:
+      - Bash
+      - Read
+      - Write
+      - Edit
+      - MultiEdit
+      - Glob
+      - Grep
+    disallowed_tools:
+      - mcp__notion__*
+```
+
+| 角色 | 拥有 | 禁止 |
+|---|---|---|
+| Planner CC | Read、Write、Edit、mcp__notion__* | Bash、其他 MCP |
+| Executor CC | Bash、Read、Write、Edit、Glob、Grep | mcp__notion__* |
+| Reviewer CC（后续） | Read、Glob、Grep | Bash、mcp__notion__* |
+
+### 3.2 Planner CC（设计阶段）
 
 **职责**：将模糊的项目需求分解为结构化的可执行 Task 列表，写入 Notion。
 
-**权限**：拥有 Notion MCP 写入权限。
+**权限**：拥有 Notion MCP 写入权限，无 Bash 执行权限。
 
 **工作流程**：
 1. 读取 inbox.md 中的需求描述 + WORKFLOW.md 全局上下文
@@ -98,11 +135,11 @@
 - 有依赖关系的任务必须标注 `blocked_by`
 - 只写"完成后能做什么"，不写技术实现细节
 
-### 3.2 Executor CC（开发阶段）
+### 3.3 Executor CC（开发阶段）
 
 **职责**：执行具体的开发任务，在 workspace 中完成代码实现。
 
-**权限**：无 Notion MCP 写权限（只读或不挂载）。
+**权限**：无 Notion MCP 权限（硬性禁止），拥有完整文件和 Shell 工具。
 
 **工作流程**：
 1. 读取 inbox.md 中的任务描述
@@ -359,7 +396,26 @@ def dispatch(task):
     db.insert_task_run(task.task_id, task.project_id, workspace, pid)
 ```
 
-### 8.4 Watchdog（超时检测）
+### 8.4 CC 启动函数
+
+```python
+def launch_cc(workspace: str, allowed_tools: str, disallowed_tools: str) -> int:
+    inbox = open(f"{workspace}/inbox.md").read()
+    cmd = [
+        "claude",
+        "--cwd", workspace,
+        "--print", inbox,
+    ]
+    if allowed_tools:
+        cmd += ["--allowedTools", allowed_tools]
+    if disallowed_tools:
+        cmd += ["--disallowedTools", disallowed_tools]
+
+    proc = subprocess.Popen(cmd)
+    return proc.pid
+```
+
+### 8.5 Watchdog（超时检测）
 
 ```python
 def watchdog():
