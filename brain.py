@@ -1,0 +1,476 @@
+#!/usr/bin/env python3
+"""Brain Daemon — 确定性调度器，负责轮询 Notion、管理 CC 进程、收集结果。"""
+
+import logging
+import os
+import signal
+import sqlite3
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+import yaml
+
+# ---------------------------------------------------------------------------
+# 配置加载
+# ---------------------------------------------------------------------------
+
+BASE_DIR = Path(__file__).resolve().parent
+
+
+def load_config() -> dict:
+    with open(BASE_DIR / "config.yaml") as f:
+        return yaml.safe_load(f)
+
+
+CONFIG = load_config()
+
+IDLE_INTERVAL = CONFIG["scheduler"]["idle_interval"]
+ACTIVE_INTERVAL = CONFIG["scheduler"]["active_interval"]
+MAX_TASK_DURATION = CONFIG["task"]["max_duration"]
+WORKSPACE_BASE = Path(CONFIG["workspace"]["base_dir"]).expanduser()
+DB_PATH = Path(CONFIG["database"]["path"])
+if not DB_PATH.is_absolute():
+    DB_PATH = BASE_DIR / DB_PATH
+
+# ---------------------------------------------------------------------------
+# 日志
+# ---------------------------------------------------------------------------
+
+log_cfg = CONFIG["logging"]
+log_file = Path(log_cfg["file"])
+if not log_file.is_absolute():
+    log_file = BASE_DIR / log_file
+log_file.parent.mkdir(parents=True, exist_ok=True)
+
+logging.basicConfig(
+    level=getattr(logging, log_cfg["level"]),
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler(),
+    ],
+)
+log = logging.getLogger("brain")
+
+# ---------------------------------------------------------------------------
+# SQLite 状态管理
+# ---------------------------------------------------------------------------
+
+
+def init_db(conn: sqlite3.Connection):
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS task_runs (
+            task_id        TEXT PRIMARY KEY,
+            project_id     TEXT NOT NULL,
+            status         TEXT NOT NULL,
+            workspace_path TEXT NOT NULL,
+            pid            INTEGER,
+            start_time     INTEGER,
+            end_time       INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS workspaces (
+            project_id     TEXT PRIMARY KEY,
+            workspace_path TEXT NOT NULL,
+            last_active    INTEGER
+        );
+        """
+    )
+    conn.commit()
+
+
+def get_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    init_db(conn)
+    return conn
+
+
+# ---------------------------------------------------------------------------
+# Notion 交互（通过 Notion MCP）
+# ---------------------------------------------------------------------------
+
+
+def fetch_ready_tasks_from_notion() -> list[dict]:
+    """从 Notion Task 数据库获取所有 status=Ready 的任务，按 priority 排序。
+
+    TODO: 接入 Notion MCP，当前返回空列表。
+    """
+    log.info("轮询 Notion 获取 Ready 任务...")
+    # TODO: 实现 Notion MCP 调用
+    return []
+
+
+def notion_update_status(task_id: str, status: str):
+    """更新 Notion Task 的 status 字段。"""
+    log.info("Notion: 更新任务 %s 状态为 %s", task_id, status)
+    # TODO: 实现 Notion MCP 调用
+
+
+def notion_append_log(task_id: str, log_entry: str):
+    """向 Notion Task 的 execution_log 字段追加一行日志。"""
+    log.info("Notion: 追加日志到任务 %s: %s", task_id, log_entry)
+    # TODO: 实现 Notion MCP 调用
+
+
+# ---------------------------------------------------------------------------
+# Workspace 管理
+# ---------------------------------------------------------------------------
+
+
+def prepare_workspace(project_id: str, repo_url: str | None) -> Path:
+    """准备 workspace：存在则 git pull，不存在则 git clone 或创建空目录。"""
+    ws = WORKSPACE_BASE / project_id
+    if ws.exists():
+        log.info("Workspace 已存在，执行 git pull: %s", ws)
+        subprocess.run(["git", "pull"], cwd=ws, capture_output=True)
+    elif repo_url:
+        log.info("克隆仓库 %s 到 %s", repo_url, ws)
+        subprocess.run(["git", "clone", repo_url, str(ws)], capture_output=True)
+    else:
+        log.info("创建新 workspace: %s", ws)
+        ws.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init"], cwd=ws, capture_output=True)
+
+    return ws
+
+
+# ---------------------------------------------------------------------------
+# inbox / outbox 协议
+# ---------------------------------------------------------------------------
+
+
+def write_inbox(workspace: Path, task: dict):
+    """向 workspace/inbox.md 写入任务描述。"""
+    content = f"""# Task
+task_id: {task["task_id"]}
+task_type: {task["task_type"]}
+project_id: {task["project_id"]}
+
+# Description
+{task["description"]}
+"""
+    if task.get("context"):
+        content += f"\n# Context\n{task['context']}\n"
+
+    (workspace / "inbox.md").write_text(content, encoding="utf-8")
+    log.info("已写入 inbox.md: task_id=%s", task["task_id"])
+
+
+def validate_outbox(content: str) -> bool:
+    """校验 outbox.md 格式是否合法。"""
+    if not content.strip():
+        return False
+    if "# Status" not in content or "# Summary" not in content:
+        return False
+    # 找到 # Status 后的第一行非空内容
+    in_status = False
+    for line in content.strip().split("\n"):
+        if line.strip() == "# Status":
+            in_status = True
+            continue
+        if in_status and line.strip():
+            valid_tokens = ["TASK_DONE", "TASK_BLOCKED:", "TASK_PROGRESS:"]
+            if not any(line.strip().startswith(t) for t in valid_tokens):
+                return False
+            return True
+    return False
+
+
+def parse_outbox(content: str) -> tuple[str, str]:
+    """解析 outbox.md，返回 (status_line, summary)。"""
+    status_line = ""
+    summary = ""
+    current_section = None
+
+    for line in content.strip().split("\n"):
+        if line.strip() == "# Status":
+            current_section = "status"
+            continue
+        elif line.strip() == "# Summary":
+            current_section = "summary"
+            continue
+        elif line.strip().startswith("# "):
+            current_section = None
+            continue
+
+        if current_section == "status" and not status_line and line.strip():
+            status_line = line.strip()
+        elif current_section == "summary":
+            summary += line + "\n"
+
+    return status_line, summary.strip()
+
+
+# ---------------------------------------------------------------------------
+# CC 进程管理
+# ---------------------------------------------------------------------------
+
+
+def install_claude_md(workspace: Path, task_type: str):
+    """将对应类型的 CLAUDE.md 模板复制到 workspace。"""
+    template = BASE_DIR / "templates" / f"CLAUDE_{task_type}.md"
+    if template.exists():
+        dest = workspace / "CLAUDE.md"
+        dest.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+        log.info("已安装 CLAUDE.md (%s) 到 %s", task_type, workspace)
+
+
+def launch_executor_cc(workspace: Path) -> int:
+    """启动 Executor CC 进程，返回 PID。"""
+    install_claude_md(workspace, "executor")
+
+    cmd = [
+        "claude",
+        "--print",
+        "--dangerously-skip-permissions",
+        "读取 inbox.md 并执行任务。完成后将结果写入 outbox.md。",
+    ]
+    log.info("启动 Executor CC: %s", workspace)
+    proc = subprocess.Popen(
+        cmd,
+        cwd=workspace,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return proc.pid
+
+
+def launch_planner_cc(workspace: Path) -> int:
+    """启动 Planner CC 进程，返回 PID。"""
+    install_claude_md(workspace, "planner")
+
+    cmd = [
+        "claude",
+        "--print",
+        "--dangerously-skip-permissions",
+        "读取 inbox.md 并进行任务拆解。将拆解方案写入 outbox.md。",
+    ]
+    log.info("启动 Planner CC: %s", workspace)
+    proc = subprocess.Popen(
+        cmd,
+        cwd=workspace,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return proc.pid
+
+
+# ---------------------------------------------------------------------------
+# 核心调度逻辑
+# ---------------------------------------------------------------------------
+
+
+def has_running_tasks(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT COUNT(*) as cnt FROM task_runs WHERE status = 'running'"
+    ).fetchone()
+    return row["cnt"] > 0
+
+
+def project_has_running_task(conn: sqlite3.Connection, project_id: str) -> bool:
+    row = conn.execute(
+        "SELECT COUNT(*) as cnt FROM task_runs WHERE project_id = ? AND status = 'running'",
+        (project_id,),
+    ).fetchone()
+    return row["cnt"] > 0
+
+
+def all_done(conn: sqlite3.Connection, task_ids: list[str]) -> bool:
+    if not task_ids:
+        return True
+    placeholders = ",".join("?" for _ in task_ids)
+    row = conn.execute(
+        f"SELECT COUNT(*) as cnt FROM task_runs WHERE task_id IN ({placeholders}) AND status = 'done'",
+        task_ids,
+    ).fetchone()
+    return row["cnt"] == len(task_ids)
+
+
+def dispatch(conn: sqlite3.Connection, task: dict):
+    """分发一个 Ready 任务。"""
+    task_id = task["task_id"]
+    project_id = task["project_id"]
+
+    # 1. 检查依赖
+    blocked_by = task.get("blocked_by", [])
+    if blocked_by and not all_done(conn, blocked_by):
+        log.info("任务 %s 依赖未完成，跳过", task_id)
+        return
+
+    # 2. 同 project 串行锁
+    if project_has_running_task(conn, project_id):
+        log.info("项目 %s 已有运行中任务，跳过", project_id)
+        return
+
+    # 3. 准备 workspace
+    workspace = prepare_workspace(project_id, task.get("repo_url"))
+
+    # 4. 写入 inbox.md
+    write_inbox(workspace, task)
+
+    # 5. 更新 Notion 状态
+    notion_update_status(task_id, "Running")
+
+    # 6. 启动 CC
+    if task.get("task_type") == "planner":
+        pid = launch_planner_cc(workspace)
+    else:
+        pid = launch_executor_cc(workspace)
+
+    # 7. 记录到 SQLite
+    conn.execute(
+        """INSERT OR REPLACE INTO task_runs
+           (task_id, project_id, status, workspace_path, pid, start_time)
+           VALUES (?, ?, 'running', ?, ?, ?)""",
+        (task_id, project_id, str(workspace), pid, int(time.time())),
+    )
+    conn.commit()
+    log.info("任务 %s 已分发，PID=%d", task_id, pid)
+
+
+def watchdog(conn: sqlite3.Connection):
+    """检测超时任务并终止。"""
+    now = int(time.time())
+    rows = conn.execute(
+        "SELECT * FROM task_runs WHERE status = 'running'"
+    ).fetchall()
+
+    for task in rows:
+        elapsed = now - task["start_time"]
+        if elapsed > MAX_TASK_DURATION:
+            task_id = task["task_id"]
+            pid = task["pid"]
+            log.warning("任务 %s 超时（%d 分钟），终止进程 %d", task_id, elapsed // 60, pid)
+
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+            conn.execute(
+                "UPDATE task_runs SET status = 'timeout', end_time = ? WHERE task_id = ?",
+                (now, task_id),
+            )
+            conn.commit()
+
+            notion_update_status(task_id, "Timeout")
+            notion_append_log(
+                task_id, f"[{time.strftime('%Y-%m-%d %H:%M')}] 任务超时（{elapsed // 60}分钟），已终止"
+            )
+
+
+def check_all_outboxes(conn: sqlite3.Connection):
+    """轮询所有运行中任务的 outbox.md。"""
+    rows = conn.execute(
+        "SELECT * FROM task_runs WHERE status = 'running'"
+    ).fetchall()
+
+    for task in rows:
+        outbox_path = Path(task["workspace_path"]) / "outbox.md"
+        if not outbox_path.exists():
+            continue
+
+        content = outbox_path.read_text(encoding="utf-8")
+        if not content.strip():
+            continue
+
+        handle_outbox(conn, task["task_id"], content)
+
+        # 处理完后清空 outbox（避免重复处理）
+        outbox_path.write_text("", encoding="utf-8")
+
+
+def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
+    """处理 outbox.md 内容。"""
+    now_str = time.strftime("%Y-%m-%d %H:%M")
+
+    if not validate_outbox(content):
+        log.error("任务 %s 的 outbox 格式异常", task_id)
+        conn.execute(
+            "UPDATE task_runs SET status = 'format_error', end_time = ? WHERE task_id = ?",
+            (int(time.time()), task_id),
+        )
+        conn.commit()
+        notion_update_status(task_id, "Blocked")
+        notion_append_log(task_id, f"[{now_str}] outbox 格式异常，需人工检查")
+        return
+
+    status_line, summary = parse_outbox(content)
+    log_entry = f"[{now_str}] {summary}"
+
+    if status_line == "TASK_DONE":
+        notion_append_log(task_id, log_entry)
+        notion_update_status(task_id, "Done")
+        conn.execute(
+            "UPDATE task_runs SET status = 'done', end_time = ? WHERE task_id = ?",
+            (int(time.time()), task_id),
+        )
+        conn.commit()
+        log.info("任务 %s 完成", task_id)
+
+        # 更新 workspace last_active
+        row = conn.execute(
+            "SELECT workspace_path FROM task_runs WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        if row:
+            conn.execute(
+                """INSERT OR REPLACE INTO workspaces (project_id, workspace_path, last_active)
+                   VALUES ((SELECT project_id FROM task_runs WHERE task_id = ?), ?, ?)""",
+                (task_id, row["workspace_path"], int(time.time())),
+            )
+            conn.commit()
+
+    elif status_line.startswith("TASK_BLOCKED:"):
+        reason = status_line.split(":", 1)[1]
+        notion_append_log(task_id, f"[{now_str}] 阻塞：{reason}")
+        notion_update_status(task_id, "Blocked")
+        conn.execute(
+            "UPDATE task_runs SET status = 'blocked', end_time = ? WHERE task_id = ?",
+            (int(time.time()), task_id),
+        )
+        conn.commit()
+        log.warning("任务 %s 被阻塞：%s", task_id, reason)
+
+    elif status_line.startswith("TASK_PROGRESS:"):
+        notion_append_log(task_id, log_entry)
+        log.info("任务 %s 进度更新：%s", task_id, summary[:80])
+
+
+# ---------------------------------------------------------------------------
+# 主循环
+# ---------------------------------------------------------------------------
+
+
+def main():
+    log.info("Brain Daemon 启动")
+    log.info("配置: idle=%ds, active=%ds, timeout=%ds", IDLE_INTERVAL, ACTIVE_INTERVAL, MAX_TASK_DURATION)
+    log.info("Workspace 根目录: %s", WORKSPACE_BASE)
+    log.info("数据库: %s", DB_PATH)
+
+    WORKSPACE_BASE.mkdir(parents=True, exist_ok=True)
+    conn = get_db()
+
+    try:
+        while True:
+            watchdog(conn)
+
+            if has_running_tasks(conn):
+                check_all_outboxes(conn)
+                time.sleep(ACTIVE_INTERVAL)
+            else:
+                ready_tasks = fetch_ready_tasks_from_notion()
+                for task in ready_tasks:
+                    dispatch(conn, task)
+                time.sleep(IDLE_INTERVAL)
+    except KeyboardInterrupt:
+        log.info("Brain Daemon 收到中断信号，退出")
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    main()

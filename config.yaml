@@ -1,0 +1,23 @@
+# Brain Daemon 配置
+
+# 轮询间隔
+scheduler:
+  idle_interval: 900       # 无任务时轮询 Notion 间隔（秒），默认 15 分钟
+  active_interval: 30      # 有运行中任务时轮询 outbox 间隔（秒）
+
+# 任务超时
+task:
+  max_duration: 7200       # 单任务最大运行时长（秒），默认 2 小时
+
+# Workspace 配置
+workspace:
+  base_dir: ~/brain-workspaces   # workspace 根目录
+
+# 数据库
+database:
+  path: ./state.db               # SQLite 数据库路径
+
+# 日志
+logging:
+  level: INFO
+  file: ./logs/brain.log
