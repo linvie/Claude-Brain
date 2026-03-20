@@ -1,4 +1,5 @@
 # Brain Daemon 配置
+# 复制为 config.yaml 后填入你的 Notion 数据库 ID
 
 # 轮询间隔
 scheduler:
@@ -8,6 +9,11 @@ scheduler:
 # 任务超时
 task:
   max_duration: 7200       # 单任务最大运行时长（秒），默认 2 小时
+
+# Notion 数据库（运行 /brain-init 自动填入，或手动配置）
+notion:
+  project_db_id: ""        # Project 数据库 ID
+  task_db_id: ""           # Task 数据库 ID
 
 # Workspace 配置
 workspace:

@@ -21,10 +21,11 @@ Notion 输入 → Brain 调度 → Claude Code 执行的个人异步任务自动
 
 在 Claude Code 中打开本项目，运行 slash command 一键完成 Notion 配置。
 
-#### 1. 安装依赖
+#### 1. 安装依赖并创建配置文件
 
 ```bash
 uv sync
+cp config.example.yaml config.yaml
 ```
 
 #### 2. 创建 Notion Integration
@@ -56,7 +57,7 @@ claude mcp list
 在 Claude Code 中打开本项目目录，执行：
 
 ```
-/init
+/brain-init
 ```
 
 这会自动完成：
@@ -77,10 +78,11 @@ uv run python brain.py
 
 如果你不使用 Claude Code，或希望完全控制配置过程。
 
-#### 1. 安装依赖
+#### 1. 安装依赖并创建配置文件
 
 ```bash
 uv sync
+cp config.example.yaml config.yaml
 ```
 
 #### 2. 创建 Notion Integration
@@ -170,14 +172,14 @@ Running  →（超时 2h）       →  Timeout
 ```
 claude-brain/
 ├── brain.py                  # Brain daemon 主程序
-├── config.yaml               # 配置文件
+├── config.example.yaml        # 配置模板（复制为 config.yaml 使用）
 ├── pyproject.toml             # uv 项目定义
 ├── WORKFLOW.md                # 全局工作流（注入 CC 上下文）
 ├── templates/
 │   ├── CLAUDE_executor.md     # Executor CC 角色模板
 │   └── CLAUDE_planner.md      # Planner CC 角色模板
 ├── .claude/
-│   ├── commands/init.md       # /init 自动配置命令
+│   ├── skills/brain-init/     # /brain-init 自动配置命令
 │   └── settings.json          # 项目级权限配置
 ├── logs/                      # 运行日志（4 个分类文件）
 └── state.db                   # SQLite 状态（运行时生成）
