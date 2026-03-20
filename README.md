@@ -66,10 +66,19 @@ claude mcp list
 - 创建 Project 和 Task 数据库（含所有属性和选项）
 - 将数据库 ID 写入 `config.yaml`
 
-#### 5. 验证
+#### 5. 配置 Notion Token
+
+将 token 填入 `config.yaml`：
+
+```yaml
+notion:
+  token: "ntn_你的token"
+```
+
+#### 6. 验证
 
 ```bash
-uv run python brain.py
+uv run python -m brain
 ```
 
 ---
@@ -118,10 +127,11 @@ cp config.example.yaml config.yaml
 
 #### 4. 编辑 config.yaml
 
-填入你的 Notion 数据库 ID：
+填入你的 Notion token 和数据库 ID：
 
 ```yaml
 notion:
+  token: "ntn_你的token"
   project_db_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
   task_db_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 ```
@@ -129,6 +139,8 @@ notion:
 > **如何获取数据库 ID**：打开 Notion 数据库页面，URL 格式为 `https://www.notion.so/<workspace>/<database_id>?v=...`，其中 32 位十六进制字符串即为数据库 ID。
 
 #### 5. 配置 Notion MCP（如使用 Claude Code）
+
+Planner CC 需要通过 MCP 创建 Task，因此仍需配置：
 
 ```bash
 claude mcp add notion --transport stdio --scope user \
@@ -139,7 +151,7 @@ claude mcp add notion --transport stdio --scope user \
 #### 6. 验证
 
 ```bash
-uv run python brain.py
+uv run python -m brain
 ```
 
 ---
@@ -171,13 +183,21 @@ Running  →（超时 2h）       →  Timeout
 
 ```
 claude-brain/
-├── brain.py                  # Brain daemon 主程序
+├── brain/                     # 核心包
+│   ├── main.py                # 主循环、任务分发、watchdog、outbox 处理
+│   ├── config.py              # 配置加载，派生常量
+│   ├── db.py                  # SQLite schema、连接、查询辅助
+│   ├── notion.py              # Notion REST API 客户端
+│   ├── protocol.py            # inbox/outbox JSON 通信协议
+│   ├── workspace.py           # workspace git 管理 + 模板安装
+│   ├── process.py             # CC 子进程启动
+│   └── logger.py              # 分类日志初始化
+├── templates/                 # CC 角色模板
+│   ├── planner/               # Planner CC（CLAUDE.md、settings.json、WORKFLOW.md）
+│   ├── executor/              # Executor CC
+│   └── shared/                # 共享文件（OUTBOX_FORMAT.md、validate_outbox.py）
 ├── config.example.yaml        # 配置模板（复制为 config.yaml 使用）
 ├── pyproject.toml             # uv 项目定义
-├── WORKFLOW.md                # 全局工作流（注入 CC 上下文）
-├── templates/
-│   ├── CLAUDE_executor.md     # Executor CC 角色模板
-│   └── CLAUDE_planner.md      # Planner CC 角色模板
 ├── .claude/
 │   ├── skills/brain-init/     # /brain-init 自动配置命令
 │   └── settings.json          # 项目级权限配置
