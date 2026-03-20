@@ -36,4 +36,4 @@
 ## 重要约束
 - 同一 project 的任务串行执行
 - 任务超时上限 2 小时
-- 所有通信通过 inbox.md / outbox.md 文件进行
+- 所有通信通过 inbox.json / outbox.json 文件进行

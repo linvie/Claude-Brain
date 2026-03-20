@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from notion_client import NotionClient
+
 # ---------------------------------------------------------------------------
 # 配置加载
 # ---------------------------------------------------------------------------
@@ -35,6 +37,17 @@ WORKSPACE_BASE = Path(CONFIG["workspace"]["base_dir"]).expanduser()
 DB_PATH = Path(CONFIG["database"]["path"])
 if not DB_PATH.is_absolute():
     DB_PATH = BASE_DIR / DB_PATH
+
+# ---------------------------------------------------------------------------
+# Notion 客户端
+# ---------------------------------------------------------------------------
+
+notion_cfg = CONFIG["notion"]
+notion = NotionClient(
+    token=notion_cfg["token"],
+    task_db_id=notion_cfg["task_db_id"],
+    project_db_id=notion_cfg["project_db_id"],
+)
 
 # ---------------------------------------------------------------------------
 # 日志
@@ -119,31 +132,33 @@ def get_db() -> sqlite3.Connection:
 
 
 # ---------------------------------------------------------------------------
-# Notion 交互（通过 Notion MCP）
+# Notion 交互（通过 REST API）
 # ---------------------------------------------------------------------------
 
 
 def fetch_ready_tasks_from_notion() -> list[dict]:
-    """从 Notion Task 数据库获取所有 status=Ready 的任务，按 priority 排序。
-
-    TODO: 接入 Notion MCP，当前返回空列表。
-    """
-    log_notion.info("查询 Ready 任务...")
-    # TODO: 实现 Notion MCP 调用
-    log_notion.info("查询完成，返回 0 个任务（stub）")
-    return []
+    """从 Notion Task 数据库获取所有 status=Ready 的任务，按 priority 排序。"""
+    try:
+        return notion.query_ready_tasks()
+    except Exception as e:
+        log_notion.error("查询 Ready 任务失败: %s", e)
+        return []
 
 
 def notion_update_status(task_id: str, status: str):
     """更新 Notion Task 的 status 字段。"""
-    log_notion.info("更新状态: task=%s → %s", task_id, status)
-    # TODO: 实现 Notion MCP 调用
+    try:
+        notion.update_task_status(task_id, status)
+    except Exception as e:
+        log_notion.error("更新状态失败: task=%s, status=%s, error=%s", task_id, status, e)
 
 
 def notion_append_log(task_id: str, log_entry: str):
     """向 Notion Task 的 execution_log 字段追加一行日志。"""
-    log_notion.info("追加日志: task=%s, entry=%s", task_id, log_entry)
-    # TODO: 实现 Notion MCP 调用
+    try:
+        notion.append_execution_log(task_id, log_entry)
+    except Exception as e:
+        log_notion.error("追加日志失败: task=%s, error=%s", task_id, e)
 
 
 # ---------------------------------------------------------------------------
@@ -239,11 +254,13 @@ def parse_outbox(content: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def install_workspace_template(workspace: Path, task_type: str):
+def install_workspace_template(workspace: Path, task_type: str, task: dict | None = None):
     """将角色模板目录和共享文件复制到 workspace。
 
     复制顺序：shared/ → {task_type}/ → 覆盖写入。
     已存在的项目文件（非模板文件）不会被覆盖。
+
+    对 planner 类型，额外注入 brain_config.json 供 CC 读取数据库 ID。
     """
     shared_dir = BASE_DIR / "templates" / "shared"
     role_dir = BASE_DIR / "templates" / task_type
@@ -252,7 +269,7 @@ def install_workspace_template(workspace: Path, task_type: str):
         log_cc.error("角色模板目录不存在: %s", role_dir)
         return
 
-    # 复制共享模板（outbox.md、OUTBOX_FORMAT.md）
+    # 复制共享模板（outbox.json、OUTBOX_FORMAT.md）
     if shared_dir.exists():
         for src in shared_dir.iterdir():
             dest = workspace / src.name
@@ -269,26 +286,33 @@ def install_workspace_template(workspace: Path, task_type: str):
             shutil.copy2(src, dest)
             log_cc.debug("复制角色文件: %s → %s", rel, dest)
 
+    # Planner 需要知道 Notion 数据库 ID 和 project_id 以创建 Task
+    if task_type == "planner" and task:
+        brain_config = {
+            "task_db_id": notion_cfg["task_db_id"],
+            "project_db_id": notion_cfg["project_db_id"],
+            "project_id": task.get("project_id", ""),
+        }
+        config_path = workspace / "brain_config.json"
+        config_path.write_text(json.dumps(brain_config, indent=2), encoding="utf-8")
+        log_cc.debug("注入 brain_config.json: %s", brain_config)
+
     log_cc.info("模板安装完成: type=%s, workspace=%s", task_type, workspace)
 
 
-def launch_cc(workspace: Path, task_type: str) -> int:
+def launch_cc(workspace: Path, task_type: str, task: dict | None = None) -> int:
     """启动 CC 进程，返回 PID。
 
     根据 config.yaml 中 roles 配置组装 --allowedTools / --disallowedTools 参数。
+    权限完全由 --allowedTools / --disallowedTools + .claude/settings.json 控制。
     """
-    install_workspace_template(workspace, task_type)
+    install_workspace_template(workspace, task_type, task)
 
     # 读取 inbox.json 作为 prompt
     inbox_path = workspace / "inbox.json"
     prompt = inbox_path.read_text(encoding="utf-8") if inbox_path.exists() else ""
 
-    cmd = [
-        "claude",
-        "--print",
-        "--dangerously-skip-permissions",
-        prompt,
-    ]
+    cmd = ["claude", "--print", prompt]
 
     # 从 config 读取角色权限（如果配置了 roles）
     roles_cfg = CONFIG.get("roles", {}).get(task_type, {})
@@ -301,7 +325,7 @@ def launch_cc(workspace: Path, task_type: str) -> int:
         cmd.extend(["--disallowedTools", ",".join(disallowed)])
 
     log_cc.info("启动 %s CC: workspace=%s", task_type, workspace)
-    log_cc.debug("CC 命令: %s", " ".join(cmd[:4]) + " ...")
+    log_cc.debug("CC 命令: %s", " ".join(cmd[:3]) + " ...")
     if allowed:
         log_cc.debug("allowed_tools: %s", allowed)
     if disallowed:
@@ -377,7 +401,7 @@ def dispatch(conn: sqlite3.Connection, task: dict):
     notion_update_status(task_id, "Running")
 
     # 6. 启动 CC
-    pid = launch_cc(workspace, task_type)
+    pid = launch_cc(workspace, task_type, task)
 
     # 7. 记录到 SQLite
     start_time = int(time.time())

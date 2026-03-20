@@ -10,8 +10,9 @@ scheduler:
 task:
   max_duration: 7200       # 单任务最大运行时长（秒），默认 2 小时
 
-# Notion 数据库（运行 /brain-init 自动填入，或手动配置）
+# Notion 配置（运行 /brain-init 自动填入，或手动配置）
 notion:
+  token: ""                # Notion Integration Token（ntn_xxx）
   project_db_id: ""        # Project 数据库 ID
   task_db_id: ""           # Task 数据库 ID
 
