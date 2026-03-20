@@ -3,6 +3,7 @@
 
 import logging
 import os
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -246,56 +247,81 @@ def parse_outbox(content: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def install_claude_md(workspace: Path, task_type: str):
-    """将对应类型的 CLAUDE.md 模板复制到 workspace。"""
-    template = BASE_DIR / "templates" / f"CLAUDE_{task_type}.md"
-    if template.exists():
-        dest = workspace / "CLAUDE.md"
-        dest.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
-        log_cc.debug("安装 CLAUDE.md (%s) → %s", task_type, workspace)
-    else:
-        log_cc.error("模板不存在: %s", template)
+def install_workspace_template(workspace: Path, task_type: str):
+    """将角色模板目录和共享文件复制到 workspace。
+
+    复制顺序：shared/ → {task_type}/ → 覆盖写入。
+    已存在的项目文件（非模板文件）不会被覆盖。
+    """
+    shared_dir = BASE_DIR / "templates" / "shared"
+    role_dir = BASE_DIR / "templates" / task_type
+
+    if not role_dir.exists():
+        log_cc.error("角色模板目录不存在: %s", role_dir)
+        return
+
+    # 复制共享模板（outbox.md、OUTBOX_FORMAT.md）
+    if shared_dir.exists():
+        for src in shared_dir.iterdir():
+            dest = workspace / src.name
+            if src.is_file():
+                shutil.copy2(src, dest)
+                log_cc.debug("复制共享文件: %s → %s", src.name, dest)
+
+    # 复制角色模板（CLAUDE.md、.claude/settings.json、WORKFLOW.md 等）
+    for src in role_dir.rglob("*"):
+        if src.is_file():
+            rel = src.relative_to(role_dir)
+            dest = workspace / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dest)
+            log_cc.debug("复制角色文件: %s → %s", rel, dest)
+
+    log_cc.info("模板安装完成: type=%s, workspace=%s", task_type, workspace)
 
 
-def launch_executor_cc(workspace: Path) -> int:
-    """启动 Executor CC 进程，返回 PID。"""
-    install_claude_md(workspace, "executor")
+def launch_cc(workspace: Path, task_type: str) -> int:
+    """启动 CC 进程，返回 PID。
+
+    根据 config.yaml 中 roles 配置组装 --allowedTools / --disallowedTools 参数。
+    """
+    install_workspace_template(workspace, task_type)
+
+    # 读取 inbox.md 作为 prompt
+    inbox_path = workspace / "inbox.md"
+    prompt = inbox_path.read_text(encoding="utf-8") if inbox_path.exists() else ""
 
     cmd = [
         "claude",
         "--print",
         "--dangerously-skip-permissions",
-        "读取 inbox.md 并执行任务。完成后将结果写入 outbox.md。",
+        prompt,
     ]
-    log_cc.info("启动 Executor CC: workspace=%s, cmd=%s", workspace, " ".join(cmd))
+
+    # 从 config 读取角色权限（如果配置了 roles）
+    roles_cfg = CONFIG.get("roles", {}).get(task_type, {})
+    allowed = roles_cfg.get("allowed_tools", [])
+    disallowed = roles_cfg.get("disallowed_tools", [])
+
+    if allowed:
+        cmd.extend(["--allowedTools", ",".join(allowed)])
+    if disallowed:
+        cmd.extend(["--disallowedTools", ",".join(disallowed)])
+
+    log_cc.info("启动 %s CC: workspace=%s", task_type, workspace)
+    log_cc.debug("CC 命令: %s", " ".join(cmd[:4]) + " ...")
+    if allowed:
+        log_cc.debug("allowed_tools: %s", allowed)
+    if disallowed:
+        log_cc.debug("disallowed_tools: %s", disallowed)
+
     proc = subprocess.Popen(
         cmd,
         cwd=workspace,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    log_cc.info("Executor CC 已启动: PID=%d, workspace=%s", proc.pid, workspace)
-    return proc.pid
-
-
-def launch_planner_cc(workspace: Path) -> int:
-    """启动 Planner CC 进程，返回 PID。"""
-    install_claude_md(workspace, "planner")
-
-    cmd = [
-        "claude",
-        "--print",
-        "--dangerously-skip-permissions",
-        "读取 inbox.md 并进行任务拆解。将拆解方案写入 outbox.md。",
-    ]
-    log_cc.info("启动 Planner CC: workspace=%s, cmd=%s", workspace, " ".join(cmd))
-    proc = subprocess.Popen(
-        cmd,
-        cwd=workspace,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    log_cc.info("Planner CC 已启动: PID=%d, workspace=%s", proc.pid, workspace)
+    log_cc.info("%s CC 已启动: PID=%d, workspace=%s", task_type, proc.pid, workspace)
     return proc.pid
 
 
@@ -359,10 +385,7 @@ def dispatch(conn: sqlite3.Connection, task: dict):
     notion_update_status(task_id, "Running")
 
     # 6. 启动 CC
-    if task_type == "planner":
-        pid = launch_planner_cc(workspace)
-    else:
-        pid = launch_executor_cc(workspace)
+    pid = launch_cc(workspace, task_type)
 
     # 7. 记录到 SQLite
     start_time = int(time.time())

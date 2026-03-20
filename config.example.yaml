@@ -15,6 +15,28 @@ notion:
   project_db_id: ""        # Project 数据库 ID
   task_db_id: ""           # Task 数据库 ID
 
+# CC 角色权限（通过 CLI --allowedTools / --disallowedTools 硬性控制）
+roles:
+  planner:
+    allowed_tools:
+      - Read
+      - Write
+      - Edit
+      - mcp__notion__*
+    disallowed_tools:
+      - Bash
+  executor:
+    allowed_tools:
+      - Bash
+      - Read
+      - Write
+      - Edit
+      - MultiEdit
+      - Glob
+      - Grep
+    disallowed_tools:
+      - mcp__notion__*
+
 # Workspace 配置
 workspace:
   base_dir: ~/brain-workspaces   # workspace 根目录
