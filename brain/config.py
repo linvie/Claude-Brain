@@ -17,6 +17,8 @@ CONFIG = load_config()
 
 IDLE_INTERVAL = CONFIG["scheduler"]["idle_interval"]
 ACTIVE_INTERVAL = CONFIG["scheduler"]["active_interval"]
+COOLDOWN_INTERVAL = CONFIG["scheduler"].get("cooldown_interval", 120)
+COOLDOWN_DURATION = CONFIG["scheduler"].get("cooldown_duration", 900)
 MAX_CONCURRENT = CONFIG["scheduler"].get("max_concurrent", 3)
 MAX_TASK_DURATION = CONFIG["task"]["max_duration"]
 WORKSPACE_BASE = Path(CONFIG["workspace"]["base_dir"]).expanduser()
