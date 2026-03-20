@@ -72,6 +72,66 @@ class NotionClient:
         resp.raise_for_status()
         return resp.json()
 
+    def get_project_info(self, project_id: str) -> dict:
+        """获取项目描述等信息供 inbox 上下文使用。
+
+        返回 dict 包含 project_name, project_description, repo_url。
+        """
+        log.info("获取项目上下文信息: project=%s", project_id)
+        try:
+            page = self.get_project(project_id)
+            props = page.get("properties", {})
+            return {
+                "project_name": self._extract_title(props.get("project_name", {})),
+                "project_description": self._extract_rich_text(props.get("description", {})),
+                "repo_url": self._extract_url(props.get("repo_url", {})),
+            }
+        except requests.HTTPError as e:
+            log.warning("获取项目信息失败: project=%s, error=%s", project_id, e)
+            return {"project_name": "", "project_description": "", "repo_url": None}
+
+    def get_related_tasks(self, project_id: str) -> list[dict]:
+        """获取同项目其他任务摘要，供 inbox 上下文使用。"""
+        log.info("获取关联任务: project=%s", project_id)
+        try:
+            payload = {
+                "filter": {
+                    "property": "project",
+                    "relation": {"contains": project_id},
+                },
+                "sorts": [
+                    {"property": "priority", "direction": "ascending"},
+                ],
+            }
+            resp = requests.post(
+                f"{API_BASE}/databases/{self.task_db_id}/query",
+                headers=self.headers,
+                json=payload,
+            )
+            resp.raise_for_status()
+            pages = resp.json().get("results", [])
+
+            tasks = []
+            for page in pages:
+                props = page.get("properties", {})
+                task_name = self._extract_title(props.get("task_name", {}))
+                status = self._extract_select(props.get("status", {}))
+                summary = self._extract_rich_text(props.get("execution_log", {}))
+                # 截取最后一行作为摘要
+                if summary:
+                    lines = summary.strip().splitlines()
+                    summary = lines[-1] if lines else ""
+                tasks.append({
+                    "task_id": page["id"],
+                    "task_name": task_name,
+                    "status": status or "Pending",
+                    "summary": summary,
+                })
+            return tasks
+        except requests.HTTPError as e:
+            log.warning("获取关联任务失败: project=%s, error=%s", project_id, e)
+            return []
+
     # ------------------------------------------------------------------
     # 更新
     # ------------------------------------------------------------------
@@ -236,3 +296,21 @@ def append_log(task_id: str, log_entry: str):
         _client.append_execution_log(task_id, log_entry)
     except Exception as e:
         log.error("追加日志失败: task=%s, error=%s", task_id, e)
+
+
+def get_project_info(project_id: str) -> dict:
+    """获取项目上下文信息（名称、描述、仓库地址）。"""
+    try:
+        return _client.get_project_info(project_id)
+    except Exception as e:
+        log.error("获取项目信息失败: project=%s, error=%s", project_id, e)
+        return {"project_name": "", "project_description": "", "repo_url": None}
+
+
+def get_related_tasks(project_id: str) -> list[dict]:
+    """获取同项目其他任务摘要。"""
+    try:
+        return _client.get_related_tasks(project_id)
+    except Exception as e:
+        log.error("获取关联任务失败: project=%s, error=%s", project_id, e)
+        return []

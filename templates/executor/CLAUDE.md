@@ -5,12 +5,13 @@
 
 ## 工作流程
 
-1. 读取 `inbox.json`，理解任务目标和约束
-2. 使用 TodoWrite 将任务拆解为可执行的子步骤
-3. 逐步执行代码实现
-4. 每完成一个主要阶段，向 `outbox.json` 写入 `TASK_PROGRESS` 并校验
-5. 全部完成后，向 `outbox.json` 写入 `TASK_DONE` 并校验
-6. 提交 git commit，描述本次改动
+1. 读取 `WORKFLOW.md` 了解系统整体工作流规范
+2. 读取 `inbox.json`，理解任务目标、上下文和约束
+3. 使用 TodoWrite 将任务拆解为可执行的子步骤
+4. 逐步执行代码实现
+5. 每完成一个主要阶段，向 `outbox.json` 写入 `TASK_PROGRESS` 并校验
+6. 全部完成后，向 `outbox.json` 写入 `TASK_DONE` 并校验
+7. 提交 git commit，描述本次改动
 
 ## inbox.json 格式
 
@@ -21,10 +22,32 @@ Brain 写入的任务描述，只读：
   "task_id": "xxx",
   "task_type": "executor",
   "project_id": "yyy",
+  "project_name": "项目名称",
+  "task_name": "任务标题",
   "description": "任务描述",
-  "context": "可选的上下文信息"
+  "priority": "Normal",
+  "blocked_by": [],
+  "context": {
+    "project_description": "项目背景描述",
+    "repo_url": "https://github.com/...",
+    "related_tasks": [
+      {"task_name": "任务A", "status": "Done", "summary": "执行摘要"},
+      {"task_name": "任务B", "status": "Pending", "summary": ""}
+    ]
+  }
 }
 ```
+
+### 字段说明
+
+- `task_name`：任务标题，一句话概括
+- `description`：详细任务描述和约束
+- `project_name`：所属项目名称
+- `priority`：优先级（High / Normal / Low）
+- `blocked_by`：前置依赖任务 ID 列表（已由 Brain 确认完成）
+- `context.project_description`：项目背景，帮助你理解全局
+- `context.repo_url`：仓库地址
+- `context.related_tasks`：同项目其他任务的名称、状态和摘要，帮助你了解任务间的关系
 
 ## outbox.json 写入规范（强制）
 

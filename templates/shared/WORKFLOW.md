@@ -29,11 +29,43 @@
 | priority | Select | `High` / `Normal` / `Low` |
 | execution_log | Text | 执行日志（时间戳 + 进度摘要） |
 
+## 通信协议
+
+Brain 与 CC 通过 workspace 中的 JSON 文件通信：
+
+### inbox.json（Brain → CC，只读）
+```json
+{
+  "task_id": "xxx",
+  "task_type": "executor",
+  "project_id": "yyy",
+  "project_name": "项目名称",
+  "task_name": "任务标题",
+  "description": "任务描述",
+  "priority": "Normal",
+  "blocked_by": [],
+  "context": {
+    "project_description": "项目背景描述",
+    "repo_url": "https://github.com/...",
+    "related_tasks": [
+      {"task_name": "任务A", "status": "Done", "summary": "摘要"},
+      {"task_name": "任务B", "status": "Pending", "summary": ""}
+    ]
+  }
+}
+```
+
+### outbox.json（CC → Brain）
+状态令牌：`TASK_DONE` / `TASK_BLOCKED` / `TASK_PROGRESS`
+
+详细格式参见 `OUTBOX_FORMAT.md`。
+
 ## 任务类型说明
-- planner：将需求拆解为 Task 列表，有 Notion 写权限
-- executor：执行具体开发任务，无 Notion 写权限
+- **planner**：将需求拆解为 Task 列表，有 Notion 写权限，无 Bash
+- **executor**：执行具体开发任务，有完整文件和 Shell 工具，无 Notion 权限
 
 ## 重要约束
 - 同一 project 的任务串行执行
 - 任务超时上限 2 小时
+- CC 启动后完全孤立，所有上下文在 inbox.json 中一次性提供
 - 所有通信通过 inbox.json / outbox.json 文件进行

@@ -184,18 +184,26 @@ Running  →（超时 2h）       →  Timeout
 ```
 claude-brain/
 ├── brain/                     # 核心包
-│   ├── main.py                # 主循环、任务分发、watchdog、outbox 处理
+│   ├── main.py                # 薄主循环，委托 core/ 模块
 │   ├── config.py              # 配置加载，派生常量
-│   ├── db.py                  # SQLite schema、连接、查询辅助
-│   ├── notion.py              # Notion REST API 客户端
-│   ├── protocol.py            # inbox/outbox JSON 通信协议
-│   ├── workspace.py           # workspace git 管理 + 模板安装
-│   ├── process.py             # CC 子进程启动
-│   └── logger.py              # 分类日志初始化
+│   ├── infra/                 # 基础设施层
+│   │   ├── db.py              # SQLite schema、连接、查询辅助
+│   │   └── logger.py          # 分类日志初始化（4 个 logger）
+│   ├── integrations/          # 外部服务集成层
+│   │   └── notion.py          # Notion REST API 客户端
+│   ├── core/                  # 核心业务层
+│   │   ├── dispatcher.py      # 任务分发
+│   │   ├── watchdog.py        # 超时检测 + 进程健康检查
+│   │   ├── outbox.py          # outbox 轮询与结果处理
+│   │   ├── protocol.py        # inbox/outbox JSON 格式定义
+│   │   └── process.py         # CC 子进程启动
+│   └── workspace/             # Workspace 管理层
+│       ├── manager.py         # git clone/pull/init
+│       └── setup.py           # 模板安装 + 上下文注入
 ├── templates/                 # CC 角色模板
-│   ├── planner/               # Planner CC（CLAUDE.md、settings.json、WORKFLOW.md）
+│   ├── planner/               # Planner CC（CLAUDE.md、settings.json）
 │   ├── executor/              # Executor CC
-│   └── shared/                # 共享文件（OUTBOX_FORMAT.md、validate_outbox.py）
+│   └── shared/                # 共享文件（WORKFLOW.md、OUTBOX_FORMAT.md、validate_outbox.py）
 ├── config.example.yaml        # 配置模板（复制为 config.yaml 使用）
 ├── pyproject.toml             # uv 项目定义
 ├── .claude/

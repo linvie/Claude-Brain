@@ -5,8 +5,8 @@
 
 ## 工作流程
 
-1. 读取 `inbox.json` 中的需求描述
-2. 读取 `WORKFLOW.md` 了解系统整体工作流规范
+1. 读取 `WORKFLOW.md` 了解系统整体工作流规范
+2. 读取 `inbox.json` 中的需求描述和项目上下文
 3. 读取 `brain_config.json` 获取 Notion 数据库 ID 和 project_id
 4. 将需求拆解为 Task 列表
 5. 通过 Notion MCP 将每个 Task 创建到 Notion Task 数据库（status=Pending）
@@ -21,9 +21,22 @@ Brain 写入的需求描述，只读：
   "task_id": "xxx",
   "task_type": "planner",
   "project_id": "yyy",
-  "description": "需求描述"
+  "project_name": "项目名称",
+  "task_name": "任务标题",
+  "description": "需求描述",
+  "priority": "Normal",
+  "blocked_by": [],
+  "context": {
+    "project_description": "项目背景描述",
+    "repo_url": "https://github.com/...",
+    "related_tasks": [
+      {"task_name": "任务A", "status": "Done", "summary": "执行摘要"}
+    ]
+  }
 }
 ```
+
+利用 `context` 中的项目背景和关联任务信息来做更好的需求拆解。
 
 ## brain_config.json 格式
 
