@@ -22,6 +22,7 @@ def setup_workspace(workspace: Path, task_type: str, inbox_data: dict, task: dic
     _install_shared_template(workspace)
     _install_role_template(workspace, task_type)
     _write_inbox(workspace, inbox_data)
+    _write_git_exclude(workspace)
 
     if task_type == "planner":
         _inject_brain_config(workspace, task)
@@ -66,6 +67,41 @@ def _write_inbox(workspace: Path, inbox_data: dict):
         encoding="utf-8",
     )
     log_cc.info("已写入 inbox.json: task_id=%s", inbox_data.get("task_id"))
+
+
+# Brain 注入的文件列表，需要从 workspace git 中排除
+_BRAIN_INJECTED_FILES = [
+    "inbox.json",
+    "outbox.json",
+    "brain_config.json",
+    "CLAUDE.md",
+    "WORKFLOW.md",
+    "OUTBOX_FORMAT.md",
+    "validate_outbox.py",
+    ".claude/",
+]
+
+
+def _write_git_exclude(workspace: Path):
+    """将 Brain 注入文件写入 .git/info/exclude，避免被 CC commit。"""
+    exclude_path = workspace / ".git" / "info" / "exclude"
+    if not exclude_path.parent.exists():
+        return  # 非 git 仓库，跳过
+
+    marker = "# Brain daemon injected files"
+    # 如果已有 Brain 标记，不重复写入
+    if exclude_path.exists():
+        existing = exclude_path.read_text(encoding="utf-8")
+        if marker in existing:
+            return
+
+    entries = "\n".join(_BRAIN_INJECTED_FILES)
+    block = f"\n{marker}\n{entries}\n"
+
+    with open(exclude_path, "a", encoding="utf-8") as f:
+        f.write(block)
+
+    log_cc.debug("已写入 .git/info/exclude: %d 条规则", len(_BRAIN_INJECTED_FILES))
 
 
 def _inject_brain_config(workspace: Path, task: dict):
