@@ -19,5 +19,9 @@ database:
 
 # 日志
 logging:
-  level: INFO
-  file: ./logs/brain.log
+  level: DEBUG                   # 文件日志级别（控制台固定 INFO）
+  dir: ./logs                    # 日志目录，包含：
+                                 #   brain.log      — 全量日志
+                                 #   scheduler.log  — 任务调度生命周期
+                                 #   cc.log         — CC 进程启动/退出/输出
+                                 #   notion.log     — Notion API 调用
