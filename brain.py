@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Brain Daemon — 确定性调度器，负责轮询 Notion、管理 CC 进程、收集结果。"""
 
+import json
 import logging
 import os
 import shutil
@@ -181,65 +182,56 @@ def prepare_workspace(project_id: str, repo_url: str | None) -> Path:
 
 
 def write_inbox(workspace: Path, task: dict):
-    """向 workspace/inbox.md 写入任务描述。"""
-    content = f"""# Task
-task_id: {task["task_id"]}
-task_type: {task["task_type"]}
-project_id: {task["project_id"]}
-
-# Description
-{task["description"]}
-"""
+    """向 workspace/inbox.json 写入任务描述。"""
+    inbox_data = {
+        "task_id": task["task_id"],
+        "task_type": task["task_type"],
+        "project_id": task["project_id"],
+        "description": task["description"],
+    }
     if task.get("context"):
-        content += f"\n# Context\n{task['context']}\n"
+        inbox_data["context"] = task["context"]
 
-    (workspace / "inbox.md").write_text(content, encoding="utf-8")
-    log.info("已写入 inbox.md: task_id=%s", task["task_id"])
+    inbox_path = workspace / "inbox.json"
+    inbox_path.write_text(json.dumps(inbox_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    log.info("已写入 inbox.json: task_id=%s", task["task_id"])
 
 
-def validate_outbox(content: str) -> bool:
-    """校验 outbox.md 格式是否合法。"""
+VALID_STATUSES = {"TASK_DONE", "TASK_BLOCKED", "TASK_PROGRESS"}
+
+
+def validate_outbox(content: str) -> tuple[bool, str]:
+    """校验 outbox.json 格式，返回 (is_valid, error_message)。"""
     if not content.strip():
-        return False
-    if "# Status" not in content or "# Summary" not in content:
-        return False
-    # 找到 # Status 后的第一行非空内容
-    in_status = False
-    for line in content.strip().split("\n"):
-        if line.strip() == "# Status":
-            in_status = True
-            continue
-        if in_status and line.strip():
-            valid_tokens = ["TASK_DONE", "TASK_BLOCKED:", "TASK_PROGRESS:"]
-            if not any(line.strip().startswith(t) for t in valid_tokens):
-                return False
-            return True
-    return False
+        return False, "outbox.json 为空"
+
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        return False, f"JSON 解析失败: {e}"
+
+    if not isinstance(data, dict):
+        return False, "根元素必须是 JSON 对象"
+
+    status = data.get("status")
+    if not status or status not in VALID_STATUSES:
+        return False, f"status 无效: {status!r}，合法值: {VALID_STATUSES}"
+
+    if not data.get("summary"):
+        return False, "缺少 summary 字段或内容为空"
+
+    if status == "TASK_BLOCKED" and not data.get("reason"):
+        return False, "TASK_BLOCKED 必须提供 reason 字段"
+
+    if status == "TASK_PROGRESS" and not data.get("stage"):
+        return False, "TASK_PROGRESS 必须提供 stage 字段"
+
+    return True, ""
 
 
-def parse_outbox(content: str) -> tuple[str, str]:
-    """解析 outbox.md，返回 (status_line, summary)。"""
-    status_line = ""
-    summary = ""
-    current_section = None
-
-    for line in content.strip().split("\n"):
-        if line.strip() == "# Status":
-            current_section = "status"
-            continue
-        elif line.strip() == "# Summary":
-            current_section = "summary"
-            continue
-        elif line.strip().startswith("# "):
-            current_section = None
-            continue
-
-        if current_section == "status" and not status_line and line.strip():
-            status_line = line.strip()
-        elif current_section == "summary":
-            summary += line + "\n"
-
-    return status_line, summary.strip()
+def parse_outbox(content: str) -> dict:
+    """解析 outbox.json，返回 dict。调用前应先 validate。"""
+    return json.loads(content)
 
 
 # ---------------------------------------------------------------------------
@@ -287,8 +279,8 @@ def launch_cc(workspace: Path, task_type: str) -> int:
     """
     install_workspace_template(workspace, task_type)
 
-    # 读取 inbox.md 作为 prompt
-    inbox_path = workspace / "inbox.md"
+    # 读取 inbox.json 作为 prompt
+    inbox_path = workspace / "inbox.json"
     prompt = inbox_path.read_text(encoding="utf-8") if inbox_path.exists() else ""
 
     cmd = [
@@ -453,7 +445,7 @@ def watchdog(conn: sqlite3.Connection):
 
 
 def check_all_outboxes(conn: sqlite3.Connection):
-    """轮询所有运行中任务的 outbox.md。"""
+    """轮询所有运行中任务的 outbox.json。"""
     rows = conn.execute(
         "SELECT * FROM task_runs WHERE status = 'running'"
     ).fetchall()
@@ -461,13 +453,13 @@ def check_all_outboxes(conn: sqlite3.Connection):
     log.debug("[outbox] 检查 %d 个运行中任务的 outbox", len(rows))
 
     for task in rows:
-        outbox_path = Path(task["workspace_path"]) / "outbox.md"
+        outbox_path = Path(task["workspace_path"]) / "outbox.json"
         if not outbox_path.exists():
-            log.debug("[outbox] task=%s, outbox 不存在，跳过", task["task_id"])
+            log.debug("[outbox] task=%s, outbox.json 不存在，跳过", task["task_id"])
             continue
 
         content = outbox_path.read_text(encoding="utf-8")
-        if not content.strip():
+        if not content.strip() or content.strip() == "{}":
             continue
 
         log_scheduler.info("收到 outbox: task=%s, 内容长度=%d", task["task_id"], len(content))
@@ -475,30 +467,33 @@ def check_all_outboxes(conn: sqlite3.Connection):
 
         handle_outbox(conn, task["task_id"], content)
 
-        # 处理完后清空 outbox（避免重复处理）
-        outbox_path.write_text("", encoding="utf-8")
+        # 处理完后重置为空 JSON（避免重复处理）
+        outbox_path.write_text("{}", encoding="utf-8")
 
 
 def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
-    """处理 outbox.md 内容。"""
+    """处理 outbox.json 内容。"""
     now_str = time.strftime("%Y-%m-%d %H:%M")
 
-    if not validate_outbox(content):
-        log_scheduler.error("outbox 格式异常: task=%s", task_id)
-        log.error("[outbox] 格式校验失败: task=%s, 内容:\n%s", task_id, content)
+    is_valid, error_msg = validate_outbox(content)
+    if not is_valid:
+        log_scheduler.error("outbox 格式异常: task=%s, error=%s", task_id, error_msg)
+        log.error("[outbox] 校验失败: task=%s, error=%s, 内容:\n%s", task_id, error_msg, content)
         conn.execute(
             "UPDATE task_runs SET status = 'format_error', end_time = ? WHERE task_id = ?",
             (int(time.time()), task_id),
         )
         conn.commit()
         notion_update_status(task_id, "Blocked")
-        notion_append_log(task_id, f"[{now_str}] outbox 格式异常，需人工检查")
+        notion_append_log(task_id, f"[{now_str}] outbox 格式异常: {error_msg}")
         return
 
-    status_line, summary = parse_outbox(content)
+    data = parse_outbox(content)
+    status = data["status"]
+    summary = data["summary"]
     log_entry = f"[{now_str}] {summary}"
 
-    if status_line == "TASK_DONE":
+    if status == "TASK_DONE":
         notion_append_log(task_id, log_entry)
         notion_update_status(task_id, "Done")
         end_time = int(time.time())
@@ -524,8 +519,8 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
             )
             conn.commit()
 
-    elif status_line.startswith("TASK_BLOCKED:"):
-        reason = status_line.split(":", 1)[1]
+    elif status == "TASK_BLOCKED":
+        reason = data["reason"]
         notion_append_log(task_id, f"[{now_str}] 阻塞：{reason}")
         notion_update_status(task_id, "Blocked")
         conn.execute(
@@ -535,8 +530,8 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
         conn.commit()
         log_scheduler.warning("阻塞: task=%s, reason=%s", task_id, reason)
 
-    elif status_line.startswith("TASK_PROGRESS:"):
-        stage = status_line.split(":", 1)[1]
+    elif status == "TASK_PROGRESS":
+        stage = data["stage"]
         notion_append_log(task_id, log_entry)
         log_scheduler.info("进度: task=%s, stage=%s, summary=%s", task_id, stage, summary[:100])
 

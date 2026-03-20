@@ -1,69 +1,64 @@
-# outbox.md 格式规范
+# outbox.json 格式规范
 
-Brain daemon 通过轮询 outbox.md 来获取你的执行状态。格式必须严格遵守，否则会被判定为格式异常。
+Brain daemon 通过轮询 `outbox.json` 获取你的执行状态。**格式为 JSON，必须机器可解析。**
 
-## 格式
+## 写入流程（强制）
 
-```markdown
-# Status
-<STATUS_TOKEN>
+1. 将结果写入 `outbox.json`
+2. 运行 `python validate_outbox.py` 校验
+3. 如果校验失败，根据错误信息修正后重新写入，再次校验
+4. 校验通过后才能继续下一步工作
 
-# Summary
-<一段话描述当前进展或完成内容>
+## JSON Schema
 
-# Artifacts
-<可选：产出物路径、PR 链接等>
+```json
+{
+  "status": "TASK_DONE | TASK_BLOCKED | TASK_PROGRESS",
+  "summary": "string（必填，描述当前进展或完成内容）",
+  "reason": "string（TASK_BLOCKED 时必填）",
+  "stage": "string（TASK_PROGRESS 时必填）",
+  "artifacts": ["string"]
+}
 ```
 
-## Status Token
+## 字段说明
 
-| Token | 含义 | 何时使用 |
-|---|---|---|
-| `TASK_DONE` | 任务完成 | 所有工作已完成，代码已提交 |
-| `TASK_BLOCKED:原因` | 遇到阻塞 | 无法继续，需要人工介入（缺少权限、依赖缺失、需求不明确等） |
-| `TASK_PROGRESS:阶段描述` | 中途进度 | 长任务中完成了一个主要阶段，报告进度 |
-
-## 规则
-
-1. `# Status` 下一行必须是 status token，不得有空行或前置文字
-2. `# Summary` 必须存在，内容不得为空
-3. `# Artifacts` 为可选段落
-4. 不得在格式之外添加任何前置说明或额外段落
-5. 每次写入 outbox.md 时完整覆盖，不要追加
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| status | string | 是 | 只能是 `TASK_DONE`、`TASK_BLOCKED`、`TASK_PROGRESS` |
+| summary | string | 是 | 一段话描述当前进展或完成内容 |
+| reason | string | TASK_BLOCKED 时必填 | 阻塞原因 |
+| stage | string | TASK_PROGRESS 时必填 | 当前阶段描述 |
+| artifacts | string[] | 否 | 产出物路径或链接 |
 
 ## 示例
 
 ### 完成
 
-```markdown
-# Status
-TASK_DONE
-
-# Summary
-实现了用户登录 API，包含 JWT 生成和密码哈希校验。添加了 3 个单元测试，全部通过。
-
-# Artifacts
-- src/auth/login.py
-- tests/test_login.py
-- PR: https://github.com/user/repo/pull/42
+```json
+{
+  "status": "TASK_DONE",
+  "summary": "实现了用户登录 API，包含 JWT 生成和密码哈希校验，3 个单元测试全部通过",
+  "artifacts": ["src/auth/login.py", "tests/test_login.py"]
+}
 ```
 
 ### 阻塞
 
-```markdown
-# Status
-TASK_BLOCKED:需要 Redis 连接配置，当前 workspace 中没有 .env 文件
-
-# Summary
-已完成缓存层代码编写，但无法测试因为缺少 Redis 连接信息。
+```json
+{
+  "status": "TASK_BLOCKED",
+  "reason": "缺少 Redis 连接配置，workspace 中没有 .env 文件",
+  "summary": "缓存层代码已完成，但无法测试"
+}
 ```
 
 ### 进度
 
-```markdown
-# Status
-TASK_PROGRESS:数据库 schema 已完成
-
-# Summary
-完成了 3 张表的 migration 文件和 ORM 模型定义，下一步实现 API 路由。
+```json
+{
+  "status": "TASK_PROGRESS",
+  "stage": "数据库 schema 已完成",
+  "summary": "完成了 3 张表的 migration 文件和 ORM 模型，下一步实现 API 路由"
+}
 ```
