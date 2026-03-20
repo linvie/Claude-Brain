@@ -1,13 +1,20 @@
-"""Notion REST API 客户端 — 封装 Brain daemon 所有 Notion HTTP 调用。"""
+"""Notion REST API 集成 — NotionClient 类 + Brain 调用 wrapper 函数。"""
 
 import logging
 
 import requests
 
+from brain.config import CONFIG
+
 log = logging.getLogger("brain.notion")
 
 API_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
+
+
+# ---------------------------------------------------------------------------
+# NotionClient
+# ---------------------------------------------------------------------------
 
 
 class NotionClient:
@@ -85,10 +92,7 @@ class NotionClient:
         log.debug("状态更新成功: task=%s → %s", task_id, status)
 
     def append_execution_log(self, task_id: str, entry: str):
-        """向 Task 的 execution_log rich_text 属性追加一行日志。
-
-        先读取现有内容，再拼接后写回。
-        """
+        """向 Task 的 execution_log rich_text 属性追加一行日志。"""
         log.info("追加日志: task=%s, entry=%s", task_id, entry[:80])
 
         # 读取当前 execution_log
@@ -190,3 +194,45 @@ class NotionClient:
     @staticmethod
     def _extract_url(prop: dict) -> str | None:
         return prop.get("url")
+
+
+# ---------------------------------------------------------------------------
+# 模块级客户端实例
+# ---------------------------------------------------------------------------
+
+_notion_cfg = CONFIG["notion"]
+_client = NotionClient(
+    token=_notion_cfg["token"],
+    task_db_id=_notion_cfg["task_db_id"],
+    project_db_id=_notion_cfg["project_db_id"],
+)
+
+
+# ---------------------------------------------------------------------------
+# Wrapper 函数（带错误处理，供其他模块调用）
+# ---------------------------------------------------------------------------
+
+
+def fetch_ready_tasks() -> list[dict]:
+    """从 Notion Task 数据库获取所有 status=Ready 的任务，按 priority 排序。"""
+    try:
+        return _client.query_ready_tasks()
+    except Exception as e:
+        log.error("查询 Ready 任务失败: %s", e)
+        return []
+
+
+def update_status(task_id: str, status: str):
+    """更新 Notion Task 的 status 字段。"""
+    try:
+        _client.update_task_status(task_id, status)
+    except Exception as e:
+        log.error("更新状态失败: task=%s, status=%s, error=%s", task_id, status, e)
+
+
+def append_log(task_id: str, log_entry: str):
+    """向 Notion Task 的 execution_log 字段追加一行日志。"""
+    try:
+        _client.append_execution_log(task_id, log_entry)
+    except Exception as e:
+        log.error("追加日志失败: task=%s, error=%s", task_id, e)

@@ -14,11 +14,16 @@
 
 | 文件 | 用途 |
 |---|---|
-| `brain.py` | Brain daemon 主程序 |
-| `config.yaml` | 配置（轮询间隔、超时、workspace 路径、角色权限） |
-| `WORKFLOW.md` | 全局工作流描述，注入 Planner CC 上下文 |
-| `templates/CLAUDE_executor.md` | Executor CC 的 CLAUDE.md 模板 |
-| `templates/CLAUDE_planner.md` | Planner CC 的 CLAUDE.md 模板 |
+| `brain/main.py` | 主循环、任务分发、watchdog、outbox 处理 |
+| `brain/config.py` | 配置加载，导出 CONFIG 和派生常量 |
+| `brain/db.py` | SQLite schema、连接工厂、查询辅助函数 |
+| `brain/notion.py` | Notion REST API 客户端 + wrapper 函数 |
+| `brain/protocol.py` | inbox/outbox JSON 通信协议 |
+| `brain/workspace.py` | workspace git 管理 + 模板安装 |
+| `brain/process.py` | CC 子进程启动 |
+| `brain/logger.py` | 分类日志初始化 |
+| `config.yaml` | 运行时配置（轮询间隔、超时、Notion token、角色权限） |
+| `templates/` | CC 角色模板（planner/、executor/、shared/） |
 | `state.db` | SQLite 运行时状态（task_runs + workspaces 表） |
 | `Claude Brain — 技术设计文档.md` | 完整技术设计文档，架构决策的权威来源 |
 
@@ -27,8 +32,9 @@
 - Python 3.12+
 - SQLite（状态管理）
 - PyYAML（配置解析）
+- requests（Notion REST API 调用）
 - Claude Code CLI（`claude --print`，作为子进程启动）
-- Notion MCP（`@notionhq/notion-mcp-server`，已配置为全局 MCP）
+- Notion MCP（`@notionhq/notion-mcp-server`，Planner CC 使用）
 
 ## CC 角色与权限
 
@@ -39,20 +45,15 @@
 
 ## 通信协议
 
-Brain 与 CC 通过 workspace 中的文件通信：
-- `inbox.md`：Brain 写入任务描述，CC 读取
-- `outbox.md`：CC 写入执行结果，Brain 轮询读取
-- Status token：`TASK_DONE` / `TASK_BLOCKED:原因` / `TASK_PROGRESS:描述`
+Brain 与 CC 通过 workspace 中的 JSON 文件通信：
+- `inbox.json`：Brain 写入任务描述，CC 读取
+- `outbox.json`：CC 写入执行结果，Brain 轮询读取
+- Status token：`TASK_DONE` / `TASK_BLOCKED` / `TASK_PROGRESS`
 
 ## 开发规范
 
 - Brain 是确定性调度器，不包含业务推理逻辑
 - 同一 project 的任务串行执行（per-project 锁）
 - 任务超时上限 2 小时
-- outbox.md 格式必须严格校验，不通过则标记为格式异常
-- 当前处于 Phase 1 MVP：不含 Planner 确认流程、Telegram 通知、workspace TTL 清理
-
-## 开发当前状态
-
-- Brain daemon 骨架已完成，Notion MCP 调用部分为 TODO stub
-- 下一步：接入 Notion MCP 实现 `fetch_ready_tasks_from_notion`、`notion_update_status`、`notion_append_log`
+- outbox.json 格式必须严格校验，不通过则标记为格式异常
+- 当前处于 Phase 1 MVP：不含 Telegram 通知、workspace TTL 清理

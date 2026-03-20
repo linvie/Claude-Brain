@@ -9,4 +9,4 @@ dependencies = [
 ]
 
 [project.scripts]
-brain = "brain:main"
+brain = "brain.main:main"
