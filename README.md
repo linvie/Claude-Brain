@@ -158,26 +158,144 @@ uv run python -m brain
 
 ## 使用方式
 
-### 创建任务
+### 工作流程概述
 
-1. 在 Notion Project 数据库中创建一个项目，设置 `status = Active`
-2. 在 Task 数据库中创建任务：
-   - 关联到对应 Project
-   - 填写 `description`（说清楚要做什么）
-   - 设置 `task_type = executor`
-   - 设置 `status = Ready`（Brain 会自动拾取）
+```
+你在 Notion 写需求 → Brain 自动拾取 → CC 执行 → 结果写回 Notion
+```
+
+你只需要操作 Notion，不需要碰代码或终端。
+
+### 路径 A：直接执行（简单任务）
+
+适合目标明确、不需要拆解的任务（bug fix、小功能、重构等）。
+
+1. **创建 Project**（如果还没有）：在 Project 数据库新建一条，填写 `project_name`、`repo_url`（已有仓库）、`status = Active`
+2. **创建 Task**：在 Task 数据库新建一条：
+   - `task_name`：一句话描述（如 "add rate limiting to API"）
+   - `description`：详细说明要做什么（2-5 句，上限 2000 字符）
+   - `project`：关联到对应 Project
+   - `task_type`：`executor`
+   - `priority`：`High` / `Normal` / `Low`
+   - `status`：设为 `Ready`，Brain 会在下一轮轮询时自动拾取
+
+### 路径 B：先规划再执行（复杂任务）
+
+适合需求模糊或需要拆解的大任务。
+
+1. **创建 Project**（同上）
+2. **创建 Planner Task**：
+   - `task_type`：`planner`
+   - `description`：描述你想要什么，不需要具体到实现细节
+   - `status`：`Ready`
+3. **Planner CC 执行**：Brain 拾取后，Planner CC 会通过 Notion MCP 在 Task 数据库中创建拆解出的子任务（`status = Pending`）
+4. **审阅并启动**：你审阅 Planner 创建的子任务，满意后把它们的 `status` 改为 `Ready`
+
+### Notion 字段说明
+
+**Project 数据库**：
+
+| 字段 | 作用 |
+|---|---|
+| `project_name` | 项目名称，传入 CC 作为上下文 |
+| `repo_url` | 仓库地址，Brain 用它 clone workspace |
+| `description` | 项目背景描述，传入 CC 作为上下文 |
+| `status` | `Active` / `Paused` / `Archived` |
+
+**Task 数据库**：
+
+| 字段 | 作用 |
+|---|---|
+| `task_name` | 任务标题，传入 CC |
+| `description` | 任务详细描述，传入 CC（上限 2000 字符） |
+| `task_type` | `planner`（需求拆解）或 `executor`（代码实现） |
+| `project` | 关联 Project，决定 workspace 和上下文 |
+| `blocked_by` | 依赖的前置任务，未完成则不会被拾取 |
+| `priority` | 影响拾取顺序（High > Normal > Low） |
+| `status` | 任务状态（见下方生命周期） |
+| `execution_log` | **系统自动写入**，不要手动编辑 |
 
 ### 任务生命周期
 
 ```
-Pending  →（手动改为 Ready）→  Ready
-Ready    →（Brain 拾取）    →  Running
-Running  →（CC 完成）       →  Done
-Running  →（CC 阻塞）       →  Blocked
-Running  →（超时 2h）       →  Timeout
+Pending  →（你手动改为 Ready）→  Ready
+Ready    →（Brain 自动拾取）  →  Running
+Running  →（CC 完成）         →  Done
+Running  →（CC 阻塞）         →  Blocked
+Running  →（超时 2h）         →  Timeout
 ```
 
-执行结果会自动写入 Task 的 `execution_log` 字段。
+### 并发与调度规则
+
+- **不同 project 的任务可并行执行**，最大并发数由 `config.yaml` 的 `scheduler.max_concurrent` 控制（默认 3）
+- **同一 project 的任务串行执行**（避免 workspace 冲突）
+- `blocked_by` 中的任务全部 Done 后才会拾取
+- 每轮都会检查运行中任务的状态 + 查询新的 Ready 任务
+
+### 执行结果
+
+- CC 完成后，摘要自动写入 Task 的 `execution_log` 字段
+- 代码变更在 workspace 目录中（`~/brain-workspaces/<project>/`）
+
+## 运行与管理
+
+### 前台运行（调试用）
+
+```bash
+uv run python -m brain
+```
+
+`Ctrl+C` 停止。适合首次测试和排查问题。
+
+### 后台运行（推荐：launchd）
+
+创建 launchd plist 实现开机自启、崩溃自动重启：
+
+```bash
+cat > ~/Library/LaunchAgents/com.linvie.claude-brain.plist << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.linvie.claude-brain</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/linvie.li/.local/bin/uv</string>
+        <string>run</string>
+        <string>python</string>
+        <string>-m</string>
+        <string>brain</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/linvie.li/code/linvie/Claude-Brain</string>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/linvie.li/code/linvie/Claude-Brain/logs/launchd.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/linvie.li/code/linvie/Claude-Brain/logs/launchd.stderr.log</string>
+</dict>
+</plist>
+EOF
+```
+
+常用命令：
+
+```bash
+# 启动
+launchctl load ~/Library/LaunchAgents/com.linvie.claude-brain.plist
+
+# 停止
+launchctl unload ~/Library/LaunchAgents/com.linvie.claude-brain.plist
+
+# 查看状态
+launchctl list | grep claude-brain
+
+# 查看日志
+tail -f logs/brain.log
+tail -f logs/scheduler.log
+```
 
 ## 项目结构
 
