@@ -78,7 +78,8 @@ Brain 与 CC 通过 workspace 中的 JSON 文件通信：
 ## 开发规范
 
 - Brain 是确定性调度器，不包含业务推理逻辑
-- 同一 project 的任务串行执行（per-project 锁）
+- 同一 project 的任务串行执行（per-project 锁），不同 project 可并行
+- 最大并发 CC 进程数由 `config.yaml` 的 `scheduler.max_concurrent` 控制（默认 3）
 - 任务超时上限 2 小时
 - outbox.json 格式必须严格校验，不通过则标记为格式异常
 - 当前处于 Phase 1 MVP：不含 Telegram 通知、workspace TTL 清理

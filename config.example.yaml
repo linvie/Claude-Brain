@@ -5,6 +5,7 @@
 scheduler:
   idle_interval: 900       # 无任务时轮询 Notion 间隔（秒），默认 15 分钟
   active_interval: 30      # 有运行中任务时轮询 outbox 间隔（秒）
+  max_concurrent: 3        # 最大同时运行 CC 进程数
 
 # 任务超时
 task:

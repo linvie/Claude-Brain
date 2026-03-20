@@ -42,6 +42,13 @@ def has_running_tasks(conn: sqlite3.Connection) -> bool:
     return row["cnt"] > 0
 
 
+def running_task_count(conn: sqlite3.Connection) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) as cnt FROM task_runs WHERE status = 'running'"
+    ).fetchone()
+    return row["cnt"]
+
+
 def project_has_running_task(conn: sqlite3.Connection, project_id: str) -> bool:
     row = conn.execute(
         "SELECT COUNT(*) as cnt FROM task_runs WHERE project_id = ? AND status = 'running'",

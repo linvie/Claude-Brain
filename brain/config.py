@@ -17,6 +17,7 @@ CONFIG = load_config()
 
 IDLE_INTERVAL = CONFIG["scheduler"]["idle_interval"]
 ACTIVE_INTERVAL = CONFIG["scheduler"]["active_interval"]
+MAX_CONCURRENT = CONFIG["scheduler"].get("max_concurrent", 3)
 MAX_TASK_DURATION = CONFIG["task"]["max_duration"]
 WORKSPACE_BASE = Path(CONFIG["workspace"]["base_dir"]).expanduser()
 DB_PATH = Path(CONFIG["database"]["path"])
