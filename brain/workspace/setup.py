@@ -10,7 +10,7 @@ from brain.config import BASE_DIR, CONFIG
 log_cc = logging.getLogger("brain.cc")
 
 
-def setup_workspace(workspace: Path, task_type: str, inbox_data: dict, task: dict):
+def setup_workspace(workspace: Path, task_type: str, inbox_data: dict, task: dict, *, project_body: str = ""):
     """一站式 workspace 准备：安装模板 + 写入 inbox.json + 注入配置。
 
     Args:
@@ -18,11 +18,13 @@ def setup_workspace(workspace: Path, task_type: str, inbox_data: dict, task: dic
         task_type: 角色类型（planner / executor）。
         inbox_data: 完整的 inbox dict（由 protocol.build_inbox 构建）。
         task: Brain 内部 task dict（用于 planner 配置注入）。
+        project_body: Project 页面正文，写入 docs/requirements.md。
     """
     _install_shared_template(workspace)
     _install_role_template(workspace, task_type)
     _write_inbox(workspace, inbox_data)
     _write_git_exclude(workspace)
+    _write_project_docs(workspace, project_body)
 
     if task_type == "planner":
         _inject_brain_config(workspace, task)
@@ -79,7 +81,19 @@ _BRAIN_INJECTED_FILES = [
     "OUTBOX_FORMAT.md",
     "validate_outbox.py",
     ".claude/",
+    "docs/",
 ]
+
+
+def _write_project_docs(workspace: Path, project_body: str):
+    """将 Project 页面正文写入 docs/requirements.md。"""
+    if not project_body:
+        return
+    docs_dir = workspace / "docs"
+    docs_dir.mkdir(exist_ok=True)
+    req_path = docs_dir / "requirements.md"
+    req_path.write_text(project_body, encoding="utf-8")
+    log_cc.info("已写入 docs/requirements.md: %d 字符", len(project_body))
 
 
 def _write_git_exclude(workspace: Path):

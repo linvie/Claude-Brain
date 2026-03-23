@@ -26,6 +26,23 @@ def init_db(conn: sqlite3.Connection):
         """
     )
     conn.commit()
+    _migrate_task_runs(conn)
+
+
+def _migrate_task_runs(conn: sqlite3.Connection):
+    """增量迁移 task_runs 表：添加 task_type, task_name, summary 列。"""
+    existing = {
+        row[1] for row in conn.execute("PRAGMA table_info(task_runs)").fetchall()
+    }
+    new_columns = {
+        "task_type": "TEXT",
+        "task_name": "TEXT",
+        "summary": "TEXT",
+    }
+    for col, col_type in new_columns.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE task_runs ADD COLUMN {col} {col_type}")
+    conn.commit()
 
 
 def get_db() -> sqlite3.Connection:

@@ -8,6 +8,8 @@ from brain.core.protocol import parse_outbox, validate_outbox
 from brain.infra.logger import log, log_scheduler
 from brain.integrations.notion import append_log, update_status
 
+_HISTORY_SEPARATOR = "\n"
+
 
 def check_all_outboxes(conn: sqlite3.Connection):
     """轮询所有运行中任务的 outbox.json。"""
@@ -60,20 +62,30 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
 
     if status == "TASK_DONE":
         append_log(task_id, log_entry)
+
+        # 提取 test_instructions 并追加到 Notion execution_log
+        test_instructions = data.get("test_instructions", "")
+        if test_instructions:
+            append_log(task_id, f"[{now_str}] 测试方法:\n{test_instructions}")
+
         update_status(task_id, "Done")
         end_time = int(time.time())
         conn.execute(
-            "UPDATE task_runs SET status = 'done', end_time = ? WHERE task_id = ?",
-            (end_time, task_id),
+            "UPDATE task_runs SET status = 'done', end_time = ?, summary = ? WHERE task_id = ?",
+            (end_time, summary, task_id),
         )
         conn.commit()
 
-        # 计算运行时长
+        # 计算运行时长 + 写 history.md
         row = conn.execute(
-            "SELECT start_time, workspace_path FROM task_runs WHERE task_id = ?", (task_id,)
+            "SELECT start_time, workspace_path, task_name FROM task_runs WHERE task_id = ?", (task_id,)
         ).fetchone()
         duration = (end_time - row["start_time"]) // 60 if row else 0
         log_scheduler.info("完成: task=%s, 耗时=%dm, summary=%s", task_id, duration, summary[:100])
+
+        # 追加 docs/history.md
+        if row and row["workspace_path"]:
+            _append_history(Path(row["workspace_path"]), row["task_name"] or task_id, now_str, summary)
 
         # 更新 workspace last_active
         if row:
@@ -99,3 +111,11 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
         stage = data["stage"]
         append_log(task_id, log_entry)
         log_scheduler.info("进度: task=%s, stage=%s, summary=%s", task_id, stage, summary[:100])
+
+
+def _append_history(workspace: Path, task_name: str, now_str: str, summary: str):
+    """将完成记录追加到 docs/history.md。"""
+    history_path = workspace / "docs" / "history.md"
+    history_path.parent.mkdir(exist_ok=True)
+    with open(history_path, "a", encoding="utf-8") as f:
+        f.write(f"{_HISTORY_SEPARATOR}## {task_name} ({now_str})\n\n{summary}\n")

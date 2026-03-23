@@ -8,10 +8,12 @@
 1. 读取 `WORKFLOW.md` 了解系统整体工作流规范
 2. 读取 `inbox.json` 中的需求描述和项目上下文（包括 `body` 字段的页面正文）
 3. 读取 `brain_config.json` 获取 Notion 数据库 ID 和 project_id
-4. 分析需求，制定技术方案
-5. 将技术方案写入当前 Task 页面正文（用 `mcp__notion__API-patch-block-children`）
-6. 将需求拆解为 Task 列表，通过 Notion MCP 创建到 Task 数据库（status=Pending）
-7. 写入 `outbox.json` 报告完成
+4. 如果 workspace 中存在 `docs/` 目录，先阅读其中的文件了解项目上下文（见下方「项目上下文目录」）
+5. 分析需求，制定技术方案
+6. 将技术方案写入 `docs/tech_plan.md`（权威副本）
+7. 将技术方案镜像到 Notion 当前 Task 页面正文（展示用，用 `mcp__notion__API-patch-block-children`）
+8. 将需求拆解为 Task 列表，通过 Notion MCP 创建到 Task 数据库（status=Pending）
+9. 写入 `outbox.json` 报告完成
 
 ## inbox.json 格式
 
@@ -53,9 +55,25 @@ Brain 注入的配置信息，只读：
 }
 ```
 
-## 技术方案写入 Notion
+## 项目上下文目录
 
-在任务拆解之前，先将技术方案写入当前 Task 页面正文，供用户审阅。
+如果 workspace 中存在 `docs/` 目录，先阅读其中的文件了解项目上下文：
+
+- `docs/requirements.md`：项目需求全文（Brain 从 Project 页面正文写入）
+- `docs/tech_plan.md`：之前 Planner 制定的技术方案（多轮 planning 时可参考）
+- `docs/history.md`：前序任务完成记录
+
+## 技术方案写入
+
+### 1. 写入 `docs/tech_plan.md`（权威副本）
+
+`docs/tech_plan.md` 是技术方案的权威存储位置。后续 Executor 任务将直接读取此文件获取技术方案。
+
+将技术方案以 Markdown 格式写入 `docs/tech_plan.md`。如果文件已存在，覆盖写入。
+
+### 2. 镜像到 Notion 页面正文（展示用）
+
+在写入 `docs/tech_plan.md` 之后，将技术方案镜像到 Notion 当前 Task 页面正文，供用户在 Notion 中审阅。
 
 **写入方法**：用 `task_id`（即 page_id）调用 `mcp__notion__API-patch-block-children`。
 

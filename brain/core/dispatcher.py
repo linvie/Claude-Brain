@@ -38,10 +38,11 @@ def dispatch(conn: sqlite3.Connection, task: dict):
     project_info = get_project_info(project_id)
     related_tasks = get_related_tasks(project_id)
     task["body"] = get_page_body(task_id)
+    project_body = get_page_body(project_id)
     inbox_data = build_inbox(task, project_info, related_tasks)
 
-    # 5. 安装模板 + 写入 inbox.json
-    setup_workspace(workspace, task_type, inbox_data, task)
+    # 5. 安装模板 + 写入 inbox.json + 写入 docs/
+    setup_workspace(workspace, task_type, inbox_data, task, project_body=project_body)
 
     # 6. 更新 Notion 状态
     update_status(task_id, "Running")
@@ -50,12 +51,13 @@ def dispatch(conn: sqlite3.Connection, task: dict):
     pid = launch_cc(workspace, task_type)
 
     # 8. 记录到 SQLite
+    task_name = task.get("task_name", "")
     start_time = int(time.time())
     conn.execute(
         """INSERT OR REPLACE INTO task_runs
-           (task_id, project_id, status, workspace_path, pid, start_time)
-           VALUES (?, ?, 'running', ?, ?, ?)""",
-        (task_id, project_id, str(workspace), pid, start_time),
+           (task_id, project_id, status, workspace_path, pid, start_time, task_type, task_name)
+           VALUES (?, ?, 'running', ?, ?, ?, ?, ?)""",
+        (task_id, project_id, str(workspace), pid, start_time, task_type, task_name),
     )
     conn.commit()
     log_scheduler.info(

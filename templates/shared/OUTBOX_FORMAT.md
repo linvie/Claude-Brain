@@ -17,7 +17,8 @@ Brain daemon 通过轮询 `outbox.json` 获取你的执行状态。**格式为 J
   "summary": "string（必填，描述当前进展或完成内容）",
   "reason": "string（TASK_BLOCKED 时必填）",
   "stage": "string（TASK_PROGRESS 时必填）",
-  "artifacts": ["string"]
+  "artifacts": ["string"],
+  "test_instructions": "string（TASK_DONE 时推荐，描述如何测试/验证）"
 }
 ```
 
@@ -30,6 +31,7 @@ Brain daemon 通过轮询 `outbox.json` 获取你的执行状态。**格式为 J
 | reason | string | TASK_BLOCKED 时必填 | 阻塞原因 |
 | stage | string | TASK_PROGRESS 时必填 | 当前阶段描述 |
 | artifacts | string[] | 否 | 产出物路径或链接 |
+| test_instructions | string | 否（TASK_DONE 时推荐） | 告诉用户如何验证改动（启动命令、URL、操作步骤等） |
 
 ## 示例
 
@@ -39,7 +41,8 @@ Brain daemon 通过轮询 `outbox.json` 获取你的执行状态。**格式为 J
 {
   "status": "TASK_DONE",
   "summary": "实现了用户登录 API，包含 JWT 生成和密码哈希校验，3 个单元测试全部通过",
-  "artifacts": ["src/auth/login.py", "tests/test_login.py"]
+  "artifacts": ["src/auth/login.py", "tests/test_login.py"],
+  "test_instructions": "运行 `python manage.py runserver`，访问 POST /api/auth/login 传入 {username, password}，预期返回 JWT token"
 }
 ```
 
