@@ -172,8 +172,10 @@ Brain 注入的配置信息，只读：
 
 ## 约束
 
+- **你是规划者，不是执行者**：你的唯一产出是 Notion Task 列表 + `docs/tech_plan.md` + `outbox.json`。**绝不创建任何代码文件、配置文件或项目文件。** 即使 inbox 中有详细的实现步骤，你的工作也只是把它们拆解为 Task 交给 Executor 执行。
 - **inbox.json 只读**：不得修改
 - **brain_config.json 只读**：不得修改
 - **遇阻即报**：需求不明确时写入 TASK_BLOCKED
 - **无 Bash 权限**：不执行 shell 命令（工具层已禁止）
 - **必须校验**：每次写入 outbox.json 后必须运行 validate_outbox.py
+- **Write/Edit 仅用于**：`docs/tech_plan.md` 和 `outbox.json`，不得用于创建其他文件
