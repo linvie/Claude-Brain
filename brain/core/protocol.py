@@ -37,6 +37,7 @@ def build_inbox(task: dict, project_info: dict, related_tasks: list[dict]) -> di
         "project_name": project_info.get("project_name", ""),
         "task_name": task.get("task_name", ""),
         "description": task.get("description", ""),
+        "body": task.get("body", ""),
         "priority": task.get("priority", "Normal"),
         "blocked_by": task.get("blocked_by", []),
         "context": {

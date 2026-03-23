@@ -186,6 +186,30 @@ class NotionClient:
         log.debug("日志追加成功: task=%s", task_id)
 
     # ------------------------------------------------------------------
+    # 读取页面正文
+    # ------------------------------------------------------------------
+
+    def get_page_body(self, page_id: str, max_blocks: int = 100) -> str:
+        """读取页面正文 blocks，返回纯文本。"""
+        log.info("读取页面正文: page=%s", page_id)
+        resp = requests.get(
+            f"{API_BASE}/blocks/{page_id}/children?page_size={max_blocks}",
+            headers=self.headers,
+        )
+        resp.raise_for_status()
+        blocks = resp.json().get("results", [])
+
+        lines = []
+        for block in blocks:
+            block_type = block.get("type", "")
+            content = block.get(block_type, {})
+            rich_texts = content.get("rich_text", [])
+            text = "".join(rt["plain_text"] for rt in rich_texts)
+            if text:
+                lines.append(text)
+        return "\n".join(lines)
+
+    # ------------------------------------------------------------------
     # 内部辅助
     # ------------------------------------------------------------------
 
@@ -314,3 +338,12 @@ def get_related_tasks(project_id: str) -> list[dict]:
     except Exception as e:
         log.error("获取关联任务失败: project=%s, error=%s", project_id, e)
         return []
+
+
+def get_page_body(page_id: str) -> str:
+    """读取 Notion 页面正文 blocks，返回纯文本。"""
+    try:
+        return _client.get_page_body(page_id)
+    except Exception as e:
+        log.error("读取页面正文失败: page=%s, error=%s", page_id, e)
+        return ""

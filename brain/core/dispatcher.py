@@ -7,7 +7,7 @@ from brain.core.process import launch_cc
 from brain.core.protocol import build_inbox
 from brain.infra.db import all_done, project_has_running_task
 from brain.infra.logger import log_scheduler
-from brain.integrations.notion import get_project_info, get_related_tasks, update_status
+from brain.integrations.notion import get_page_body, get_project_info, get_related_tasks, update_status
 from brain.workspace.manager import prepare_workspace
 from brain.workspace.setup import setup_workspace
 
@@ -37,6 +37,7 @@ def dispatch(conn: sqlite3.Connection, task: dict):
     # 4. 获取项目上下文并构建 inbox
     project_info = get_project_info(project_id)
     related_tasks = get_related_tasks(project_id)
+    task["body"] = get_page_body(task_id)
     inbox_data = build_inbox(task, project_info, related_tasks)
 
     # 5. 安装模板 + 写入 inbox.json

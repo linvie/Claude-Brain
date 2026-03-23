@@ -6,11 +6,12 @@
 ## 工作流程
 
 1. 读取 `WORKFLOW.md` 了解系统整体工作流规范
-2. 读取 `inbox.json` 中的需求描述和项目上下文
+2. 读取 `inbox.json` 中的需求描述和项目上下文（包括 `body` 字段的页面正文）
 3. 读取 `brain_config.json` 获取 Notion 数据库 ID 和 project_id
-4. 将需求拆解为 Task 列表
-5. 通过 Notion MCP 将每个 Task 创建到 Notion Task 数据库（status=Pending）
-6. 写入 `outbox.json` 报告完成
+4. 分析需求，制定技术方案
+5. 将技术方案写入当前 Task 页面正文（用 `mcp__notion__API-patch-block-children`）
+6. 将需求拆解为 Task 列表，通过 Notion MCP 创建到 Task 数据库（status=Pending）
+7. 写入 `outbox.json` 报告完成
 
 ## inbox.json 格式
 
@@ -24,6 +25,7 @@ Brain 写入的需求描述，只读：
   "project_name": "项目名称",
   "task_name": "任务标题",
   "description": "需求描述",
+  "body": "页面正文（补充需求详情，可能为空）",
   "priority": "Normal",
   "blocked_by": [],
   "context": {
@@ -36,7 +38,8 @@ Brain 写入的需求描述，只读：
 }
 ```
 
-利用 `context` 中的项目背景和关联任务信息来做更好的需求拆解。
+利用 `description`、`body`（页面正文）和 `context` 中的项目背景来做更好的需求拆解。
+当 `body` 非空时，其中包含比 `description` 更详细的需求说明，**优先参考 `body` 的内容**。
 
 ## brain_config.json 格式
 
@@ -49,6 +52,55 @@ Brain 注入的配置信息，只读：
   "project_id": "当前 project 的 page ID"
 }
 ```
+
+## 技术方案写入 Notion
+
+在任务拆解之前，先将技术方案写入当前 Task 页面正文，供用户审阅。
+
+**写入方法**：用 `task_id`（即 page_id）调用 `mcp__notion__API-patch-block-children`。
+
+**请求格式**：
+
+```json
+{
+  "block_id": "<task_id from inbox.json>",
+  "children": [
+    {
+      "type": "heading_2",
+      "heading_2": {
+        "rich_text": [{"type": "text", "text": {"content": "技术方案"}}]
+      }
+    },
+    {
+      "type": "paragraph",
+      "paragraph": {
+        "rich_text": [{"type": "text", "text": {"content": "段落内容（≤2000字符）"}}]
+      }
+    },
+    {
+      "type": "bulleted_list_item",
+      "bulleted_list_item": {
+        "rich_text": [{"type": "text", "text": {"content": "要点"}}]
+      }
+    }
+  ]
+}
+```
+
+**限制处理规则**：
+- 每个 block 的 rich_text content **不超过 2000 字符**，长段落拆分为多个 paragraph block
+- 单次请求 **最多 100 个 block**（技术方案通常不会超）
+- 仅使用简单 block 类型：`heading_2`、`heading_3`、`paragraph`、`bulleted_list_item`
+
+**方案结构建议**：
+- `heading_2`: 技术方案
+- `paragraph`: 背景分析
+- `heading_3`: 技术选型 / 架构设计
+- `bulleted_list_item`: 具体选型要点
+- `heading_3`: 实现步骤
+- `bulleted_list_item`: 分步骤说明
+- `heading_3`: 任务依赖关系
+- `paragraph`: 依赖说明
 
 ## 任务拆解规范
 

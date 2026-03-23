@@ -25,6 +25,7 @@ Brain 写入的任务描述，只读：
   "project_name": "项目名称",
   "task_name": "任务标题",
   "description": "任务描述",
+  "body": "页面正文（补充需求详情，可能为空）",
   "priority": "Normal",
   "blocked_by": [],
   "context": {
