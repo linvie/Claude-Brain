@@ -47,7 +47,7 @@ def launch_cc(workspace: Path, task_type: str) -> int:
 
 
 def launch_script(workspace: Path, script_name: str) -> int:
-    """启动测试脚本，返回 PID。脚本必须前台运行（Brain 跟踪 PID）。"""
+    """启动测试脚本，返回 PID。使用新进程组以便整体终止进程树。"""
     script_path = workspace / script_name
     log_cc.info("启动测试脚本: %s, workspace=%s", script_name, workspace)
     proc = subprocess.Popen(
@@ -55,13 +55,14 @@ def launch_script(workspace: Path, script_name: str) -> int:
         cwd=workspace,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        start_new_session=True,  # 创建新进程组，便于整体 kill
     )
     log_cc.info("测试脚本已启动: PID=%d, script=%s", proc.pid, script_name)
     return proc.pid
 
 
 def stop_script(workspace: Path, pid: int):
-    """停止测试脚本：先执行 test_stop.sh（如有），再 SIGTERM。"""
+    """停止测试脚本：先执行 test_stop.sh（如有），再 kill 整个进程组。"""
     stop_path = workspace / "test_stop.sh"
     if stop_path.exists():
         log_cc.info("执行 test_stop.sh: workspace=%s", workspace)
@@ -69,8 +70,13 @@ def stop_script(workspace: Path, pid: int):
             subprocess.run(["bash", str(stop_path)], cwd=workspace, timeout=30)
         except subprocess.TimeoutExpired:
             log_cc.warning("test_stop.sh 执行超时: workspace=%s", workspace)
+    # 终止整个进程组（包括所有子进程）
     try:
-        os.kill(pid, signal.SIGTERM)
-        log_cc.info("已终止测试脚本进程: PID=%d", pid)
-    except ProcessLookupError:
-        pass
+        os.killpg(os.getpgid(pid), signal.SIGTERM)
+        log_cc.info("已终止测试脚本进程组: PID=%d", pid)
+    except (ProcessLookupError, PermissionError):
+        # 进程已不存在或无权限，尝试单独 kill
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
