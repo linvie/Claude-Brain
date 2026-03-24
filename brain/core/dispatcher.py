@@ -3,11 +3,11 @@
 import sqlite3
 import time
 
-from brain.core.process import launch_cc
+from brain.core.process import launch_cc, launch_script
 from brain.core.protocol import build_inbox
 from brain.infra.db import all_done, project_has_running_task
 from brain.infra.logger import log_scheduler
-from brain.integrations.notion import get_page_body, get_project_info, get_related_tasks, update_status
+from brain.integrations.notion import append_log, get_page_body, get_project_info, get_related_tasks, update_status
 from brain.workspace.manager import prepare_workspace
 from brain.workspace.setup import setup_workspace
 
@@ -33,6 +33,23 @@ def dispatch(conn: sqlite3.Connection, task: dict):
 
     # 3. 准备 workspace
     workspace = prepare_workspace(project_id, task.get("repo_url"))
+
+    # 3.5 Tester 快捷路径：脚本已存在 → 直接启动，不走 CC
+    if task_type == "tester" and (workspace / "test_start.sh").exists():
+        now_str = time.strftime("%Y-%m-%d %H:%M")
+        update_status(task_id, "Running")
+        pid = launch_script(workspace, "test_start.sh")
+        task_name = task.get("task_name", "")
+        conn.execute(
+            """INSERT OR REPLACE INTO task_runs
+               (task_id, project_id, status, workspace_path, pid, start_time, task_type, task_name)
+               VALUES (?, ?, 'running', ?, ?, ?, 'tester', ?)""",
+            (task_id, project_id, str(workspace), pid, int(time.time()), task_name),
+        )
+        conn.commit()
+        append_log(task_id, f"[{now_str}] 启动测试脚本: PID={pid}")
+        log_scheduler.info("Tester 快捷启动: task=%s, PID=%d", task_id, pid)
+        return
 
     # 4. 获取项目上下文并构建 inbox
     project_info = get_project_info(project_id)

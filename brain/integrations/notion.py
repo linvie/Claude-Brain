@@ -210,6 +210,21 @@ class NotionClient:
         return "\n".join(lines)
 
     # ------------------------------------------------------------------
+    # 单字段查询
+    # ------------------------------------------------------------------
+
+    def get_task_status(self, task_id: str) -> str | None:
+        """查询单个 Task 的当前 status。"""
+        log.debug("查询任务状态: task=%s", task_id)
+        resp = requests.get(
+            f"{API_BASE}/pages/{task_id}",
+            headers=self.headers,
+        )
+        resp.raise_for_status()
+        props = resp.json().get("properties", {})
+        return self._extract_select(props.get("status", {}))
+
+    # ------------------------------------------------------------------
     # 内部辅助
     # ------------------------------------------------------------------
 
@@ -347,3 +362,12 @@ def get_page_body(page_id: str) -> str:
     except Exception as e:
         log.error("读取页面正文失败: page=%s, error=%s", page_id, e)
         return ""
+
+
+def get_task_status(task_id: str) -> str | None:
+    """查询单个 Task 的当前 Notion status。"""
+    try:
+        return _client.get_task_status(task_id)
+    except Exception as e:
+        log.error("查询任务状态失败: task=%s, error=%s", task_id, e)
+        return None

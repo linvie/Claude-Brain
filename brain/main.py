@@ -13,6 +13,7 @@ from brain.config import (
 )
 from brain.core.dispatcher import dispatch
 from brain.core.outbox import check_all_outboxes
+from brain.core.tester import check_tester_stops
 from brain.core.watchdog import watchdog
 from brain.infra.db import get_db, running_task_count
 from brain.infra.logger import log, log_scheduler
@@ -43,6 +44,7 @@ def main():
             if running_before > 0:
                 watchdog(conn)
                 check_all_outboxes(conn)
+                check_tester_stops(conn)
 
             # 检测是否有任务刚完成（running 数减少了）
             running_after = running_task_count(conn)

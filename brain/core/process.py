@@ -1,6 +1,8 @@
-"""CC 进程管理 — 启动 Claude Code 子进程。"""
+"""CC 进程管理 — 启动 Claude Code 子进程 + 测试脚本管理。"""
 
 import logging
+import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -42,3 +44,33 @@ def launch_cc(workspace: Path, task_type: str) -> int:
     )
     log_cc.info("%s CC 已启动: PID=%d, workspace=%s", task_type, proc.pid, workspace)
     return proc.pid
+
+
+def launch_script(workspace: Path, script_name: str) -> int:
+    """启动测试脚本，返回 PID。脚本必须前台运行（Brain 跟踪 PID）。"""
+    script_path = workspace / script_name
+    log_cc.info("启动测试脚本: %s, workspace=%s", script_name, workspace)
+    proc = subprocess.Popen(
+        ["bash", str(script_path)],
+        cwd=workspace,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    log_cc.info("测试脚本已启动: PID=%d, script=%s", proc.pid, script_name)
+    return proc.pid
+
+
+def stop_script(workspace: Path, pid: int):
+    """停止测试脚本：先执行 test_stop.sh（如有），再 SIGTERM。"""
+    stop_path = workspace / "test_stop.sh"
+    if stop_path.exists():
+        log_cc.info("执行 test_stop.sh: workspace=%s", workspace)
+        try:
+            subprocess.run(["bash", str(stop_path)], cwd=workspace, timeout=30)
+        except subprocess.TimeoutExpired:
+            log_cc.warning("test_stop.sh 执行超时: workspace=%s", workspace)
+    try:
+        os.kill(pid, signal.SIGTERM)
+        log_cc.info("已终止测试脚本进程: PID=%d", pid)
+    except ProcessLookupError:
+        pass

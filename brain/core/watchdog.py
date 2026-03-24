@@ -4,6 +4,7 @@ import os
 import signal
 import sqlite3
 import time
+from pathlib import Path
 
 from brain.config import MAX_TASK_DURATION
 from brain.infra.logger import log, log_cc, log_scheduler
@@ -38,6 +39,11 @@ def watchdog(conn: sqlite3.Connection):
             continue
 
         if elapsed > MAX_TASK_DURATION:
+            # Tester 脚本不受超时限制（由用户手动停止）
+            if task["task_type"] == "tester" and (Path(task["workspace_path"]) / "test_start.sh").exists():
+                log.debug("[watchdog] tester 脚本跳过超时检查: task=%s, elapsed=%dm", task_id, elapsed // 60)
+                continue
+
             log_scheduler.warning("超时: task=%s, PID=%d, elapsed=%dm (max=%dm)", task_id, pid, elapsed // 60, MAX_TASK_DURATION // 60)
             log_cc.warning("终止超时 CC 进程: PID=%d, task=%s", pid, task_id)
 

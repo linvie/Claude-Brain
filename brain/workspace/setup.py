@@ -82,6 +82,8 @@ _BRAIN_INJECTED_FILES = [
     "validate_outbox.py",
     ".claude/",
     "docs/",
+    "test_start.sh",
+    "test_stop.sh",
 ]
 
 
