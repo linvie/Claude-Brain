@@ -64,7 +64,7 @@ curl -s -X POST 'https://api.notion.com/v1/databases' \
 |---|---|---|
 | task_name | title | 任务名称 |
 | description | rich_text | 任务描述 |
-| task_type | select | 选项：`planner` (purple), `executor` (blue) |
+| task_type | select | 选项：`planner` (purple), `executor` (blue), `tester` (green) |
 | project | relation | 关联到 Project 数据库（使用上一步返回的 database_id） |
 | status | select | 选项：`Pending` (default), `Ready` (blue), `Running` (yellow), `Done` (green), `Blocked` (red), `Timeout` (orange) |
 | priority | select | 选项：`High` (red), `Normal` (blue), `Low` (default) |
