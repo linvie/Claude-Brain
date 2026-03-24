@@ -1,11 +1,13 @@
 """Outbox 处理 — 轮询运行中任务的 outbox.json 并处理结果。"""
 
+import os
+import signal
 import sqlite3
 import time
 from pathlib import Path
 
 from brain.core.protocol import parse_outbox, validate_outbox
-from brain.infra.logger import log, log_scheduler
+from brain.infra.logger import log, log_cc, log_scheduler
 from brain.integrations.notion import append_log, update_status
 
 _HISTORY_SEPARATOR = "\n"
@@ -61,6 +63,7 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
     log_entry = f"[{now_str}] {summary}"
 
     if status == "TASK_DONE":
+        _kill_cc_process(conn, task_id)
         append_log(task_id, log_entry)
 
         # 提取 test_instructions 并追加到 Notion execution_log
@@ -97,6 +100,7 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
             conn.commit()
 
     elif status == "TASK_BLOCKED":
+        _kill_cc_process(conn, task_id)
         reason = data["reason"]
         append_log(task_id, f"[{now_str}] 阻塞：{reason}")
         update_status(task_id, "Blocked")
@@ -111,6 +115,21 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
         stage = data["stage"]
         append_log(task_id, log_entry)
         log_scheduler.info("进度: task=%s, stage=%s, summary=%s", task_id, stage, summary[:100])
+
+
+def _kill_cc_process(conn: sqlite3.Connection, task_id: str):
+    """终止 CC 进程，防止已完成任务的 CC 继续写 outbox。"""
+    row = conn.execute(
+        "SELECT pid FROM task_runs WHERE task_id = ?", (task_id,)
+    ).fetchone()
+    if not row or not row["pid"]:
+        return
+    pid = row["pid"]
+    try:
+        os.kill(pid, signal.SIGTERM)
+        log_cc.info("已终止 CC 进程: PID=%d, task=%s", pid, task_id)
+    except ProcessLookupError:
+        pass  # 进程已退出
 
 
 def _append_history(workspace: Path, task_name: str, now_str: str, summary: str):
