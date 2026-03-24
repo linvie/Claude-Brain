@@ -40,6 +40,16 @@ roles:
       - Grep
     disallowed_tools:
       - mcp__notion__*
+  tester:
+    allowed_tools:
+      - Bash
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+    disallowed_tools:
+      - mcp__notion__*
 
 # Workspace 配置
 workspace:
