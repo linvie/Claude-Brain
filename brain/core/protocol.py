@@ -3,6 +3,8 @@
 import json
 import logging
 
+from brain.config import REMOTE_ENABLED, REMOTE_HOST, REMOTE_SHARE_DIR
+
 log = logging.getLogger("brain")
 
 VALID_STATUSES = {"TASK_DONE", "TASK_BLOCKED", "TASK_PROGRESS"}
@@ -46,6 +48,14 @@ def build_inbox(task: dict, project_info: dict, related_tasks: list[dict]) -> di
             "related_tasks": other_tasks,
         },
     }
+
+    if REMOTE_ENABLED:
+        inbox["context"]["remote"] = {
+            "enabled": True,
+            "host": REMOTE_HOST,
+            "share_dir": str(REMOTE_SHARE_DIR),
+        }
+
     return inbox
 
 

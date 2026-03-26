@@ -51,6 +51,12 @@ roles:
     disallowed_tools:
       - mcp__notion__*
 
+# 远程开发模式（通过 Tailscale 等组网方案从另一台设备访问）
+remote:
+  enabled: false                              # 是否启用远程开发模式
+  host: "mac-mini.tail1234.ts.net"           # Brain 所在机器的 Tailscale 主机名或 IP
+  share_dir: ~/brain-shared                   # 打包产物共享目录
+
 # Workspace 配置
 workspace:
   base_dir: ~/brain-workspaces   # workspace 根目录

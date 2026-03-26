@@ -25,3 +25,8 @@ WORKSPACE_BASE = Path(CONFIG["workspace"]["base_dir"]).expanduser()
 DB_PATH = Path(CONFIG["database"]["path"])
 if not DB_PATH.is_absolute():
     DB_PATH = BASE_DIR / DB_PATH
+
+# 远程开发模式
+REMOTE_ENABLED = CONFIG.get("remote", {}).get("enabled", False)
+REMOTE_HOST = CONFIG.get("remote", {}).get("host", "localhost")
+REMOTE_SHARE_DIR = Path(CONFIG.get("remote", {}).get("share_dir", "~/brain-shared")).expanduser()

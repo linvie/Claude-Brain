@@ -92,6 +92,32 @@ exec npm run dev
 }
 ```
 
+## 远程开发模式
+
+如果 `inbox.json` 中 `context.remote.enabled == true`，说明用户从远程设备访问：
+
+### Web 应用
+- test_start.sh 中的服务**必须绑定 `0.0.0.0`**，而非 `127.0.0.1`
+  - Node.js: `HOST=0.0.0.0 exec npm run dev`
+  - Vite: `exec npx vite --host 0.0.0.0`
+  - Next.js: `exec npx next dev -H 0.0.0.0`
+  - Python: `exec python manage.py runserver 0.0.0.0:8000`
+- outbox.json 的 test_instructions 中用 `context.remote.host` 替代 localhost
+  - 例：`"访问 http://mac-mini.xxx.ts.net:3000"`
+- 如果框架强制绑定 127.0.0.1 且无法配置，使用 socat 转发：
+  ```bash
+  socat TCP-LISTEN:3001,bind=0.0.0.0,fork TCP:127.0.0.1:3000 &
+  exec npm run dev
+  ```
+
+### 打包应用
+- 打包完成后，将产物**复制到 `context.remote.share_dir`**
+- test_start.sh 末尾加 `cp -r dist/* <share_dir>/`
+- outbox.json 的 artifacts 报告 share_dir 中的路径
+
+### 非远程模式
+- 如果 `context.remote` 不存在或 `enabled == false`，按默认方式处理（localhost URL，workspace 内产物路径）
+
 ## 约束
 
 - **inbox.json 只读**：不得修改
