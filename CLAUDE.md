@@ -75,6 +75,18 @@ Brain 与 CC 通过 workspace 中的 JSON 文件通信：
 - Status token：`TASK_DONE` / `TASK_BLOCKED` / `TASK_PROGRESS`
 - CC 启动命令只传 `"Read inbox.json and follow the instructions in CLAUDE.md."`，不传 inbox 内容
 
+## 远程开发模式
+
+通过 `config.yaml` 的 `remote` 配置段启用，支持通过 Tailscale 等组网方案从远程设备访问 Brain 管理的服务和产物。
+
+- `remote.enabled`：开关，默认 false
+- `remote.host`：Brain 机器的 Tailscale 主机名/IP，用于替换 localhost URL
+- `remote.share_dir`：打包产物共享目录
+
+启用后的行为：
+- `protocol.py` 在 inbox context 中注入 remote 信息，CC 据此调整脚本生成（绑定 `0.0.0.0`、使用 remote host）
+- `outbox.py` 自动将 test_instructions 中的 localhost 替换为 remote host，并将 artifacts 复制到 share_dir
+
 ## 开发规范
 
 - Brain 是确定性调度器，不包含业务推理逻辑
