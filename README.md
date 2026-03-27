@@ -132,42 +132,22 @@ Running  →（超时 2h）       →  Timeout
 uv run python -m brain    # Ctrl+C 停止
 ```
 
-### 后台运行（launchd）
+### 后台运行（推荐）
 
 ```bash
-cat > ~/Library/LaunchAgents/com.linvie.claude-brain.plist << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.linvie.claude-brain</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/Users/linvie.li/.local/bin/uv</string>
-        <string>run</string>
-        <string>python</string>
-        <string>-m</string>
-        <string>brain</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>/Users/linvie.li/code/linvie/Claude-Brain</string>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/Users/linvie.li/code/linvie/Claude-Brain/logs/launchd.stdout.log</string>
-    <key>StandardErrorPath</key>
-    <string>/Users/linvie.li/code/linvie/Claude-Brain/logs/launchd.stderr.log</string>
-</dict>
-</plist>
-EOF
+./brain.sh install   # 一次性安装（注册 launchd 服务并启动）
 ```
 
+日常管理：
+
 ```bash
-launchctl load ~/Library/LaunchAgents/com.linvie.claude-brain.plist    # 启动
-launchctl unload ~/Library/LaunchAgents/com.linvie.claude-brain.plist  # 停止
-launchctl list | grep claude-brain                                     # 状态
-tail -f logs/brain.log                                                 # 日志
+./brain.sh start     # 启动服务（后台常驻，崩溃自动重启）
+./brain.sh stop      # 停止服务（优雅关闭）
+./brain.sh restart   # 重启
+./brain.sh status    # 查看运行状态（PID、运行时长）
+./brain.sh logs      # tail -f 主日志
+./brain.sh logs cc   # tail -f CC 日志
+./brain.sh uninstall # 卸载服务
 ```
 
 ### 日志
@@ -272,6 +252,7 @@ claude-brain/
 │   ├── executor/              # Executor CC
 │   ├── tester/                # Tester CC（脚本生成）
 │   └── shared/                # 共享文件（WORKFLOW.md、OUTBOX_FORMAT.md 等）
+├── brain.sh                   # 服务管理脚本（install/start/stop/status/logs）
 ├── config.example.yaml        # 配置模板
 ├── pyproject.toml             # uv 项目定义
 ├── .claude/

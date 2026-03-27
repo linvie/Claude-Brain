@@ -1,5 +1,6 @@
 """Brain Daemon 主模块 — 薄主循环，业务逻辑委托给 core/ 模块。"""
 
+import signal
 import time
 
 from brain.config import (
@@ -19,8 +20,16 @@ from brain.infra.db import get_db, running_task_count
 from brain.infra.logger import log, log_scheduler
 from brain.integrations.notion import fetch_ready_tasks
 
+_shutdown = False
+
+
+def _handle_sigterm(signum, frame):
+    global _shutdown
+    _shutdown = True
+
 
 def main():
+    signal.signal(signal.SIGTERM, _handle_sigterm)
     log.info("Brain Daemon 启动")
     log.info(
         "配置: idle=%ds, active=%ds, cooldown=%ds/%ds, timeout=%ds, max_concurrent=%d",
@@ -36,7 +45,7 @@ def main():
     last_task_done_time = 0  # 最近一次任务完成的时间戳
 
     try:
-        while True:
+        while not _shutdown:
             cycle += 1
             running_before = running_task_count(conn)
 
@@ -76,6 +85,8 @@ def main():
             time.sleep(interval)
     except KeyboardInterrupt:
         log.info("Brain Daemon 收到中断信号，退出")
+    else:
+        log.info("Brain Daemon 收到 SIGTERM，优雅关闭")
     finally:
         conn.close()
         log.info("数据库连接已关闭")
