@@ -99,11 +99,160 @@ async def _notion_poll_loop(conn, shutdown: asyncio.Event):
 
 
 # ---------------------------------------------------------------------------
-# v2: 消息处理（飞书 → CC → 回复）
+# v2: Per-channel 队列 + 命令路由
 # ---------------------------------------------------------------------------
 
-async def _handle_channel_message(incoming, adapter, conn):
-    """处理来自 channel 的消息：reaction → CC 执行 → 回复 → 移除 reaction。"""
+# channel_id → asyncio.Queue，保证同一 channel 线性处理
+_channel_queues: dict[str, asyncio.Queue] = {}
+_channel_workers: dict[str, asyncio.Task] = {}
+
+
+async def _enqueue_message(incoming, adapter, conn):
+    """将消息放入 per-channel 队列。首次自动启动 worker。"""
+    cid = incoming.channel_id
+    if cid not in _channel_queues:
+        _channel_queues[cid] = asyncio.Queue()
+        worker = asyncio.create_task(
+            _channel_worker(cid, adapter, conn),
+            name=f"channel-{cid[:8]}",
+        )
+        worker.add_done_callback(_on_task_exception)
+        _channel_workers[cid] = worker
+    await _channel_queues[cid].put(incoming)
+
+
+async def _channel_worker(channel_id: str, adapter, conn):
+    """Per-channel worker：线性消费队列中的消息。"""
+    queue = _channel_queues[channel_id]
+    while True:
+        incoming = await queue.get()
+        try:
+            text = incoming.text.strip()
+            # 命令路由
+            if text.startswith("/"):
+                await _handle_command(incoming, adapter, conn)
+            else:
+                await _handle_chat(incoming, adapter, conn)
+        except Exception:
+            log_feishu.exception("worker 异常: channel=%s", channel_id)
+        finally:
+            queue.task_done()
+
+
+# ---------------------------------------------------------------------------
+# 命令处理
+# ---------------------------------------------------------------------------
+
+async def _handle_command(incoming, adapter, conn):
+    """解析并处理 /xxx 命令。"""
+    from brain.channels.base import OutgoingMessage
+
+    text = incoming.text.strip()
+    parts = text.split(None, 1)
+    cmd = parts[0].lower()
+    arg = parts[1] if len(parts) > 1 else ""
+
+    if cmd == "/btw":
+        # 后台任务：不阻塞队列，立即回复，CC 在后台执行
+        if not arg:
+            await adapter.send(OutgoingMessage(
+                channel_id=incoming.channel_id,
+                text="用法: /btw <任务描述>",
+                reply_to=incoming.message_id,
+            ))
+            return
+        await adapter.send(OutgoingMessage(
+            channel_id=incoming.channel_id,
+            text=f"已提交后台任务: {arg[:50]}",
+            reply_to=incoming.message_id,
+        ))
+        asyncio.create_task(
+            _run_background_task(incoming, adapter, conn, arg),
+            name=f"btw-{incoming.channel_id[:8]}",
+        )
+
+    elif cmd == "/reset":
+        # 重置 session：归档当前 session，下条消息开新 session
+        from brain.session.manager import get_active_session
+        session_id = get_active_session(conn, incoming.channel_id)
+        if session_id:
+            from brain.session.manager import _archive_session
+            _archive_session(conn, incoming.channel_id, session_id)
+        await adapter.send(OutgoingMessage(
+            channel_id=incoming.channel_id,
+            text="已重置对话，下条消息将开始新 session。",
+            reply_to=incoming.message_id,
+        ))
+
+    elif cmd == "/status":
+        from brain.session.manager import get_active_session
+        session_id = get_active_session(conn, incoming.channel_id)
+        status = f"Session: {session_id or '无'}"
+        await adapter.send(OutgoingMessage(
+            channel_id=incoming.channel_id,
+            text=status,
+            reply_to=incoming.message_id,
+        ))
+
+    elif cmd == "/help":
+        help_text = (
+            "**可用命令：**\n\n"
+            "- `/btw <任务>` — 后台执行任务（不阻塞对话）\n"
+            "- `/reset` — 重置对话 session\n"
+            "- `/status` — 查看当前 session 状态\n"
+            "- `/help` — 显示此帮助\n\n"
+            "直接发消息即对话（线性处理，排队执行）。"
+        )
+        await adapter.send(OutgoingMessage(
+            channel_id=incoming.channel_id,
+            text=help_text,
+            reply_to=incoming.message_id,
+        ))
+
+    else:
+        await adapter.send(OutgoingMessage(
+            channel_id=incoming.channel_id,
+            text=f"未知命令: {cmd}\n发 /help 查看可用命令。",
+            reply_to=incoming.message_id,
+        ))
+
+
+async def _run_background_task(incoming, adapter, conn, task_desc: str):
+    """后台执行 CC 任务，完成后回复。不阻塞 channel 队列。"""
+    from brain.channels.base import OutgoingMessage
+    from brain.executor.cc import execute
+    from brain.session.manager import get_workspace
+
+    channel_id = incoming.channel_id
+    workspace = get_workspace(channel_id)
+
+    try:
+        _, result_text = await execute(
+            prompt=task_desc,
+            cwd=workspace,
+            channel_id=f"{channel_id}:btw",  # 独立 session，不干扰主对话
+        )
+        reply = result_text if result_text else "（后台任务完成，无输出）"
+        await adapter.send(OutgoingMessage(
+            channel_id=channel_id,
+            text=f"**后台任务完成：** {task_desc[:30]}\n\n{reply}",
+            reply_to=incoming.message_id,
+        ))
+    except Exception:
+        log_feishu.exception("后台任务异常: channel=%s", channel_id)
+        await adapter.send(OutgoingMessage(
+            channel_id=channel_id,
+            text=f"后台任务失败: {task_desc[:30]}",
+            reply_to=incoming.message_id,
+        ))
+
+
+# ---------------------------------------------------------------------------
+# 普通对话处理
+# ---------------------------------------------------------------------------
+
+async def _handle_chat(incoming, adapter, conn):
+    """处理普通对话消息：reaction → CC 执行 → 回复 → 移除 reaction。"""
     from brain.channels.base import OutgoingMessage
     from brain.executor.cc import execute
     from brain.memory.extractor import extract_and_store
@@ -114,22 +263,17 @@ async def _handle_channel_message(incoming, adapter, conn):
     reaction_id = None
 
     try:
-        # 1. 添加 emoji reaction 表示正在处理
         reaction_id = await adapter.add_reaction(incoming.message_id)
 
-        # 2. 获取 per-channel workspace（首次自动创建）
         workspace = get_workspace(channel_id)
 
-        # 3. 查找或创建 session
         session_id = get_active_session(conn, channel_id)
         if session_id:
             touch_session(conn, channel_id, session_id)
             log_feishu.info("复用 session: channel=%s, session=%s", channel_id, session_id)
 
-        # 4. 组装记忆 context
         memory_context = build_memory_context(conn, incoming.text)
 
-        # 5. 执行 CC（per-channel workspace + session resume）
         new_session_id, result_text = await execute(
             prompt=incoming.text,
             cwd=workspace,
@@ -138,36 +282,30 @@ async def _handle_channel_message(incoming, adapter, conn):
             resume=session_id,
         )
 
-        # 6. 保存 session
         if new_session_id:
             save_session(conn, channel_id, new_session_id)
 
-        # 7. 回复结果
         reply_text = result_text if result_text else "（CC 未返回结果）"
-        reply_msg = OutgoingMessage(
+        await adapter.send(OutgoingMessage(
             channel_id=channel_id,
             text=reply_text,
             reply_to=incoming.message_id,
-        )
-        await adapter.send(reply_msg)
+        ))
 
-        # 8. 提取记忆
         if result_text:
             extract_and_store(conn, result_text, source=f"channel:{channel_id}")
 
     except Exception:
         log_feishu.exception("处理消息异常: channel=%s", channel_id)
         try:
-            error_msg = OutgoingMessage(
+            await adapter.send(OutgoingMessage(
                 channel_id=channel_id,
                 text="处理消息时发生错误，请稍后重试。",
                 reply_to=incoming.message_id,
-            )
-            await adapter.send(error_msg)
+            ))
         except Exception:
             pass
     finally:
-        # 9. 移除 reaction
         if reaction_id:
             await adapter.remove_reaction(incoming.message_id, reaction_id)
 
@@ -220,7 +358,7 @@ async def main():
             allowed_users=FEISHU_ALLOWED_USERS or None,
         )
         feishu_adapter.on_message(
-            lambda msg: _handle_channel_message(msg, feishu_adapter, conn)
+            lambda msg: _enqueue_message(msg, feishu_adapter, conn)
         )
         t = asyncio.create_task(feishu_adapter.start(), name="feishu-ws")
         t.add_done_callback(_on_task_exception)
