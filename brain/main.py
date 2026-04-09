@@ -8,6 +8,9 @@ from brain.config import (
     ACTIVE_INTERVAL,
     COOLDOWN_DURATION,
     COOLDOWN_INTERVAL,
+    FEISHU_APP_ID,
+    FEISHU_APP_SECRET,
+    FEISHU_ENABLED,
     IDLE_INTERVAL,
     MAX_CONCURRENT,
     MAX_TASK_DURATION,
@@ -25,8 +28,11 @@ from brain.integrations.notion import fetch_ready_tasks
 _shutdown_event: asyncio.Event | None = None
 
 
+# ---------------------------------------------------------------------------
+# 信号处理 & task 异常兜底
+# ---------------------------------------------------------------------------
+
 def _handle_signal(sig: signal.Signals):
-    """信号处理：设置 shutdown event，通知所有 async task 退出。"""
     name = signal.Signals(sig).name
     log.info("收到 %s 信号，准备关闭", name)
     if _shutdown_event:
@@ -34,7 +40,6 @@ def _handle_signal(sig: signal.Signals):
 
 
 def _on_task_exception(task: asyncio.Task):
-    """asyncio task 异常兜底：记录日志，避免异常静默丢失。"""
     if task.cancelled():
         return
     exc = task.exception()
@@ -42,8 +47,11 @@ def _on_task_exception(task: asyncio.Task):
         log.error("async task [%s] 异常退出: %s", task.get_name(), exc, exc_info=exc)
 
 
+# ---------------------------------------------------------------------------
+# v1: Notion 轮询
+# ---------------------------------------------------------------------------
+
 async def _notion_poll_loop(conn, shutdown: asyncio.Event):
-    """v1 Notion 轮询循环 — 从同步 while 迁移为 async task。"""
     cycle = 0
     last_task_done_time = 0.0
 
@@ -51,19 +59,16 @@ async def _notion_poll_loop(conn, shutdown: asyncio.Event):
         cycle += 1
         running_before = running_task_count(conn)
 
-        # 1. 运行中任务：检查超时 + 收集结果
         if running_before > 0:
             watchdog(conn)
             check_all_outboxes(conn)
             check_tester_stops(conn)
 
-        # 检测是否有任务刚完成
         running_after = running_task_count(conn)
         if running_after < running_before:
             last_task_done_time = time.time()
             log.info("[notion] 检测到任务完成，进入 cooldown 轮询模式")
 
-        # 2. 有空槽位：查询并分发新任务
         if running_after < MAX_CONCURRENT:
             ready_tasks = fetch_ready_tasks()
             if ready_tasks:
@@ -77,7 +82,6 @@ async def _notion_poll_loop(conn, shutdown: asyncio.Event):
                     break
                 dispatch(conn, task)
 
-        # 3. 选择轮询间隔
         running_now = running_task_count(conn)
         if running_now > 0:
             interval = ACTIVE_INTERVAL
@@ -90,14 +94,86 @@ async def _notion_poll_loop(conn, shutdown: asyncio.Event):
         try:
             await asyncio.wait_for(shutdown.wait(), timeout=interval)
         except asyncio.TimeoutError:
-            pass  # 正常：超时意味着继续下一轮
+            pass
 
+
+# ---------------------------------------------------------------------------
+# v2: 消息处理（飞书 → CC → 回复）
+# ---------------------------------------------------------------------------
+
+async def _handle_channel_message(incoming, adapter, conn):
+    """处理来自 channel 的消息：发占位 → 执行 CC → 编辑结果。"""
+    from brain.channels.base import OutgoingMessage
+    from brain.executor.cc import execute
+    from brain.memory.extractor import extract_and_store
+    from brain.memory.retriever import build_memory_context
+    from brain.session.manager import get_active_session, save_session, touch_session
+
+    channel_id = incoming.channel_id
+
+    # 1. 发送"思考中..."占位消息
+    try:
+        placeholder_msg = OutgoingMessage(
+            channel_id=channel_id,
+            text="思考中...",
+            reply_to=incoming.message_id,
+        )
+        placeholder_id = await adapter.send(placeholder_msg)
+    except Exception:
+        log.exception("[handler] 发送占位消息失败")
+        return
+
+    try:
+        # 2. 查找或创建 session
+        session_id = get_active_session(conn, channel_id)
+        if session_id:
+            touch_session(conn, channel_id, session_id)
+            log.info("[handler] 复用 session: channel=%s, session=%s", channel_id, session_id)
+
+        # 3. 组装记忆 context
+        memory_context = build_memory_context(conn, incoming.text)
+
+        # 4. 执行 CC
+        workspace = WORKSPACE_BASE / "v2-default"
+        workspace.mkdir(parents=True, exist_ok=True)
+
+        new_session_id, result_text = await execute(
+            prompt=incoming.text,
+            cwd=workspace,
+            system_append=memory_context,
+            resume=session_id,
+        )
+
+        # 5. 保存 session
+        if new_session_id:
+            save_session(conn, channel_id, new_session_id)
+
+        # 6. 编辑占位消息为结果
+        if result_text:
+            await adapter.edit(placeholder_id, result_text)
+        else:
+            await adapter.edit(placeholder_id, "（CC 未返回结果）")
+
+        # 7. 提取记忆
+        if result_text:
+            extract_and_store(conn, result_text, source=f"feishu:{channel_id}")
+
+    except Exception:
+        log.exception("[handler] 处理消息异常: channel=%s", channel_id)
+        try:
+            await adapter.edit(placeholder_id, "处理消息时发生错误，请稍后重试。")
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# 主循环
+# ---------------------------------------------------------------------------
 
 async def main():
     global _shutdown_event
     _shutdown_event = asyncio.Event()
 
-    # 信号处理
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, _handle_signal, sig)
@@ -127,13 +203,29 @@ async def main():
     else:
         log.info("Notion 轮询未启用（token 未配置）")
 
-    # v2: Channel adapters 将在此处启动（Milestone 2）
+    # v2: 飞书 adapter
+    feishu_adapter = None
+    if FEISHU_ENABLED:
+        from brain.channels.feishu.adapter import FeishuAdapter
+
+        log.info("飞书 adapter 已启用")
+        feishu_adapter = FeishuAdapter(FEISHU_APP_ID, FEISHU_APP_SECRET)
+        feishu_adapter.on_message(
+            lambda msg: _handle_channel_message(msg, feishu_adapter, conn)
+        )
+        t = asyncio.create_task(feishu_adapter.start(), name="feishu-ws")
+        t.add_done_callback(_on_task_exception)
+        tasks.append(t)
+    else:
+        log.info("飞书 adapter 未启用")
+
+    if not tasks:
+        log.warning("无任何事件源启用，Brain 将空转等待信号")
 
     # 等待关闭信号
     await _shutdown_event.wait()
     log.info("正在关闭...")
 
-    # 取消所有 task
     for t in tasks:
         t.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)

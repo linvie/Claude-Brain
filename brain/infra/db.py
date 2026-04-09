@@ -49,7 +49,16 @@ def get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     init_db(conn)
+    _init_v2_tables(conn)
     return conn
+
+
+def _init_v2_tables(conn: sqlite3.Connection):
+    """初始化 v2 表（session、memory）。"""
+    from brain.session.manager import init_session_tables
+    from brain.memory.store import init_memory_tables
+    init_session_tables(conn)
+    init_memory_tables(conn)
 
 
 def has_running_tasks(conn: sqlite3.Connection) -> bool:
