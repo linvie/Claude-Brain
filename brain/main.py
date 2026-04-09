@@ -108,7 +108,7 @@ async def _handle_channel_message(incoming, adapter, conn):
     from brain.executor.cc import execute
     from brain.memory.extractor import extract_and_store
     from brain.memory.retriever import build_memory_context
-    from brain.session.manager import get_active_session, save_session, touch_session
+    from brain.session.manager import get_active_session, get_workspace, save_session, touch_session
 
     channel_id = incoming.channel_id
     reaction_id = None
@@ -117,31 +117,32 @@ async def _handle_channel_message(incoming, adapter, conn):
         # 1. 添加 emoji reaction 表示正在处理
         reaction_id = await adapter.add_reaction(incoming.message_id)
 
-        # 2. 查找或创建 session
+        # 2. 获取 per-channel workspace（首次自动创建）
+        workspace = get_workspace(channel_id)
+
+        # 3. 查找或创建 session
         session_id = get_active_session(conn, channel_id)
         if session_id:
             touch_session(conn, channel_id, session_id)
             log_feishu.info("复用 session: channel=%s, session=%s", channel_id, session_id)
 
-        # 3. 组装记忆 context
+        # 4. 组装记忆 context
         memory_context = build_memory_context(conn, incoming.text)
 
-        # 4. 执行 CC
-        workspace = WORKSPACE_BASE / "v2-default"
-        workspace.mkdir(parents=True, exist_ok=True)
-
+        # 5. 执行 CC（per-channel workspace + session resume）
         new_session_id, result_text = await execute(
             prompt=incoming.text,
             cwd=workspace,
+            channel_id=channel_id,
             system_append=memory_context,
             resume=session_id,
         )
 
-        # 5. 保存 session
+        # 6. 保存 session
         if new_session_id:
             save_session(conn, channel_id, new_session_id)
 
-        # 6. 回复结果
+        # 7. 回复结果
         reply_text = result_text if result_text else "（CC 未返回结果）"
         reply_msg = OutgoingMessage(
             channel_id=channel_id,
@@ -150,9 +151,9 @@ async def _handle_channel_message(incoming, adapter, conn):
         )
         await adapter.send(reply_msg)
 
-        # 7. 提取记忆
+        # 8. 提取记忆
         if result_text:
-            extract_and_store(conn, result_text, source=f"feishu:{channel_id}")
+            extract_and_store(conn, result_text, source=f"channel:{channel_id}")
 
     except Exception:
         log_feishu.exception("处理消息异常: channel=%s", channel_id)
@@ -166,7 +167,7 @@ async def _handle_channel_message(incoming, adapter, conn):
         except Exception:
             pass
     finally:
-        # 8. 移除 reaction（无论成功失败）
+        # 9. 移除 reaction
         if reaction_id:
             await adapter.remove_reaction(incoming.message_id, reaction_id)
 
