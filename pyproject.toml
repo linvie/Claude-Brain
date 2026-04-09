@@ -1,6 +1,6 @@
 [project]
 name = "ccbrain"
-version = "0.2.3"
+version = "0.2.4"
 description = "Personal AI daemon — Feishu chat + Notion tasks, powered by Claude Code"
 requires-python = ">=3.12"
 readme = "README.md"
