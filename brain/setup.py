@@ -50,11 +50,13 @@ def _save_config(config: dict):
 
 
 def _apply_config(lines: list[str], config: dict) -> list[str]:
+    # 只处理 section.key: scalar_value（跳过深层嵌套如 roles）
     flat: dict[str, str] = {}
     for section, values in config.items():
         if isinstance(values, dict):
             for key, val in values.items():
-                flat[f"{section}.{key}"] = val
+                if not isinstance(val, (dict, list)):
+                    flat[f"{section}.{key}"] = val
         else:
             flat[section] = values
 
