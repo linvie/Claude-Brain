@@ -15,12 +15,13 @@ from brain.infra.logger import log_feishu as log
 class FeishuAdapter(ChannelAdapter):
     """飞书 adapter：通过 WebSocket 长连接接收消息，同步 API 发送/编辑消息。"""
 
-    def __init__(self, app_id: str, app_secret: str):
+    def __init__(self, app_id: str, app_secret: str, allowed_users: list[str] | None = None):
         super().__init__()
         self._app_id = app_id
         self._app_secret = app_secret
         self._client = FeishuClient(app_id, app_secret)
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._allowed_users: set[str] | None = set(allowed_users) if allowed_users else None
 
     def _on_receive(self, data) -> None:
         """WebSocket 消息回调（在 ws 线程中执行）。"""
@@ -29,6 +30,12 @@ class FeishuAdapter(ChannelAdapter):
 
         if msg.message_type != "text":
             log.debug("忽略非文本消息: type=%s", msg.message_type)
+            return
+
+        # allowlist 检查
+        user_id = sender.sender_id.open_id
+        if self._allowed_users and user_id not in self._allowed_users:
+            log.info("拒绝未授权用户: user=%s, chat=%s", user_id, msg.chat_id)
             return
 
         text = json.loads(msg.content).get("text", "")

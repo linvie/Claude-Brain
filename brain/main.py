@@ -8,6 +8,7 @@ from brain.config import (
     ACTIVE_INTERVAL,
     COOLDOWN_DURATION,
     COOLDOWN_INTERVAL,
+    FEISHU_ALLOWED_USERS,
     FEISHU_APP_ID,
     FEISHU_APP_SECRET,
     FEISHU_ENABLED,
@@ -213,7 +214,10 @@ async def main():
         from brain.channels.feishu.adapter import FeishuAdapter
 
         log.info("飞书 adapter 已启用")
-        feishu_adapter = FeishuAdapter(FEISHU_APP_ID, FEISHU_APP_SECRET)
+        feishu_adapter = FeishuAdapter(
+            FEISHU_APP_ID, FEISHU_APP_SECRET,
+            allowed_users=FEISHU_ALLOWED_USERS or None,
+        )
         feishu_adapter.on_message(
             lambda msg: _handle_channel_message(msg, feishu_adapter, conn)
         )

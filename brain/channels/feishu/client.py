@@ -30,16 +30,34 @@ class FeishuClient:
             .build()
         )
 
+    @staticmethod
+    def _build_card(text: str) -> str:
+        """将 markdown 文本包装为飞书 Interactive Card JSON。"""
+        card = {
+            "type": "template",
+            "data": {
+                "template_variable": {"content": text},
+                "template_id": "",  # 无模板，用内联卡片
+            },
+        }
+        # 飞书 CardKit 2.0 内联格式
+        card = {
+            "elements": [
+                {"tag": "markdown", "content": text}
+            ],
+        }
+        return json.dumps(card)
+
     def send_text(self, chat_id: str, text: str) -> str:
-        """发送文本消息，返回 message_id。"""
+        """发送 markdown 卡片消息，返回 message_id。"""
         request = (
             CreateMessageRequest.builder()
             .receive_id_type("chat_id")
             .request_body(
                 CreateMessageRequestBody.builder()
                 .receive_id(chat_id)
-                .msg_type("text")
-                .content(json.dumps({"text": text}))
+                .msg_type("interactive")
+                .content(self._build_card(text))
                 .build()
             )
             .build()
@@ -51,14 +69,14 @@ class FeishuClient:
         return response.data.message_id
 
     def reply_text(self, message_id: str, text: str) -> str:
-        """回复消息，返回新 message_id。"""
+        """回复 markdown 卡片消息，返回新 message_id。"""
         request = (
             ReplyMessageRequest.builder()
             .message_id(message_id)
             .request_body(
                 ReplyMessageRequestBody.builder()
-                .msg_type("text")
-                .content(json.dumps({"text": text}))
+                .msg_type("interactive")
+                .content(self._build_card(text))
                 .build()
             )
             .build()

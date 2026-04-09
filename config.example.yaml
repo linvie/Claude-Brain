@@ -63,6 +63,7 @@ feishu:
   enabled: false
   app_id: ""               # 飞书应用 App ID
   app_secret: ""           # 飞书应用 App Secret
+  allowed_users: []        # 授权用户 open_id 列表（空 = 不限制）
 
 # ── Session 管理 ──
 session:

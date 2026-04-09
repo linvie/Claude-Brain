@@ -50,6 +50,7 @@ _feishu_cfg = CONFIG.get("feishu", {})
 FEISHU_ENABLED = _feishu_cfg.get("enabled", False)
 FEISHU_APP_ID = _feishu_cfg.get("app_id", "")
 FEISHU_APP_SECRET = _feishu_cfg.get("app_secret", "")
+FEISHU_ALLOWED_USERS = _feishu_cfg.get("allowed_users", [])  # 空列表 = 不限制
 
 # v2: Session 配置
 _session_cfg = CONFIG.get("session", {})
