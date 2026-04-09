@@ -5,7 +5,7 @@ import logging
 import shutil
 from pathlib import Path
 
-from brain.config import BASE_DIR, CONFIG
+from brain.config import SRC_DIR, CONFIG
 
 log_cc = logging.getLogger("brain.cc")
 
@@ -34,7 +34,7 @@ def setup_workspace(workspace: Path, task_type: str, inbox_data: dict, task: dic
 
 def _install_shared_template(workspace: Path):
     """复制 shared/ 模板（outbox.json、OUTBOX_FORMAT.md、WORKFLOW.md 等）。"""
-    shared_dir = BASE_DIR / "templates" / "shared"
+    shared_dir = SRC_DIR / "templates" / "shared"
     if not shared_dir.exists():
         return
 
@@ -47,7 +47,7 @@ def _install_shared_template(workspace: Path):
 
 def _install_role_template(workspace: Path, task_type: str):
     """复制角色模板（CLAUDE.md、.claude/settings.json 等）。"""
-    role_dir = BASE_DIR / "templates" / task_type
+    role_dir = SRC_DIR / "templates" / task_type
     if not role_dir.exists():
         log_cc.error("角色模板目录不存在: %s", role_dir)
         return
