@@ -192,7 +192,7 @@ wheels = [
 [[package]]
 name = "claude-brain"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "claude-agent-sdk" },
     { name = "lark-oapi" },

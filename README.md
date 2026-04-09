@@ -29,13 +29,15 @@ Notion（写需求）→ Brain（自动调度）→ Claude Code（执行）→ N
 
 ```bash
 git clone <repo-url> && cd Claude-Brain
-uv sync
+uv sync    # 安装依赖，同时注册全局 brain 命令
 ```
+
+安装后 `brain` 命令在任何目录下可用。
 
 ### 2. 交互式配置
 
 ```bash
-./brain.sh init
+brain init
 ```
 
 配置向导会引导你完成所有设置：
@@ -76,8 +78,8 @@ claude mcp add notion --transport stdio --scope user \
 ### 3. 启动
 
 ```bash
-./brain.sh install   # 首次：注册 launchd 服务并启动
-./brain.sh start     # 后续：启动服务
+brain install   # 首次：注册 launchd 服务并启动
+brain start     # 后续：启动服务
 ```
 
 ## 使用指南
@@ -133,28 +135,30 @@ Running  →（超时 2h）       →  Timeout
 
 ## 运行与管理
 
+所有命令在任何目录下均可运行（`uv sync` 后自动注册 `brain` 命令）。
+
 ### 前台运行（调试用）
 
 ```bash
-uv run python -m brain    # Ctrl+C 停止
+brain run    # Ctrl+C 停止
 ```
 
 ### 后台运行（推荐）
 
 ```bash
-./brain.sh install   # 一次性安装（注册 launchd 服务并启动）
+brain install   # 一次性安装（注册 launchd 服务并启动）
 ```
 
 日常管理：
 
 ```bash
-./brain.sh start     # 启动服务（后台常驻，崩溃自动重启）
-./brain.sh stop      # 停止服务（优雅关闭）
-./brain.sh restart   # 重启
-./brain.sh status    # 查看运行状态（PID、运行时长）
-./brain.sh logs      # tail -f 主日志
-./brain.sh logs cc   # tail -f CC 日志
-./brain.sh uninstall # 卸载服务
+brain start     # 启动服务（后台常驻，崩溃自动重启）
+brain stop      # 停止服务（优雅关闭）
+brain restart   # 重启
+brain status    # 查看运行状态（PID、运行时长）
+brain logs      # tail -f 主日志
+brain logs cc   # tail -f CC 日志
+brain uninstall # 卸载服务
 ```
 
 ### 日志
