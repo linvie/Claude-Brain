@@ -106,6 +106,8 @@ async def _notion_poll_loop(conn, shutdown: asyncio.Event):
 _INSTANT_COMMANDS = {"/reset", "/status", "/help"}
 # 需要 CC 但不阻塞队列的命令
 _BACKGROUND_COMMANDS = {"/btw"}
+# /btw 并发限制
+_BTW_SEMAPHORE = asyncio.Semaphore(3)
 
 # channel_id → asyncio.Queue，只有普通对话消息才入队
 _channel_queues: dict[str, asyncio.Queue] = {}
@@ -229,37 +231,37 @@ async def _handle_command(incoming, adapter, conn):
 
 
 async def _run_background_task(incoming, adapter, conn, task_desc: str):
-    """后台执行 CC 任务，完成后回复。同一 workspace，不阻塞队列。"""
+    """后台执行 CC 任务，完成后回复。最多 3 个并发，超出排队等待。"""
     from brain.channels.base import OutgoingMessage
     from brain.executor.cc import execute
     from brain.session.manager import get_workspace
 
     channel_id = incoming.channel_id
-    workspace = get_workspace(channel_id)
 
-    try:
-        # 同一个 workspace（共享文件、MCP、CLAUDE.md），但不 resume 主 session
-        _, result_text = await execute(
-            prompt=task_desc,
-            cwd=workspace,
-            channel_id=channel_id,
-        )
-        reply = result_text if result_text else "（后台任务完成，无输出）"
-        await adapter.send(OutgoingMessage(
-            channel_id=channel_id,
-            text=f"**后台任务完成：** {task_desc[:50]}\n\n{reply}",
-            reply_to=incoming.message_id,
-        ))
-    except Exception:
-        log_feishu.exception("后台任务异常: channel=%s", channel_id)
+    async with _BTW_SEMAPHORE:
+        workspace = get_workspace(channel_id)
         try:
+            _, result_text = await execute(
+                prompt=task_desc,
+                cwd=workspace,
+                channel_id=channel_id,
+            )
+            reply = result_text if result_text else "（后台任务完成，无输出）"
             await adapter.send(OutgoingMessage(
                 channel_id=channel_id,
-                text=f"后台任务失败: {task_desc[:50]}",
+                text=f"**后台任务完成：** {task_desc[:50]}\n\n{reply}",
                 reply_to=incoming.message_id,
             ))
         except Exception:
-            pass
+            log_feishu.exception("后台任务异常: channel=%s", channel_id)
+            try:
+                await adapter.send(OutgoingMessage(
+                    channel_id=channel_id,
+                    text=f"后台任务失败: {task_desc[:50]}",
+                    reply_to=incoming.message_id,
+                ))
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
