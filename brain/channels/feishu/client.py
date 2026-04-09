@@ -4,8 +4,11 @@ import json
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1 import (
+    CreateMessageReactionRequest,
+    CreateMessageReactionRequestBody,
     CreateMessageRequest,
     CreateMessageRequestBody,
+    DeleteMessageReactionRequest,
     ReplyMessageRequest,
     ReplyMessageRequestBody,
     UpdateMessageRequest,
@@ -83,3 +86,33 @@ class FeishuClient:
         if not response.success():
             log.error("飞书编辑消息失败: code=%s, msg=%s", response.code, response.msg)
             raise RuntimeError(f"feishu edit failed: {response.code} {response.msg}")
+
+    def add_reaction(self, message_id: str, emoji_type: str = "OnIt") -> str | None:
+        """给消息添加 emoji reaction，返回 reaction_id（失败返回 None，不抛异常）。"""
+        request = (
+            CreateMessageReactionRequest.builder()
+            .message_id(message_id)
+            .request_body(
+                CreateMessageReactionRequestBody.builder()
+                .reaction_type({"emoji_type": emoji_type})
+                .build()
+            )
+            .build()
+        )
+        response = self._client.im.v1.message_reaction.create(request)
+        if not response.success():
+            log.debug("添加 reaction 失败（非阻塞）: code=%s, msg=%s", response.code, response.msg)
+            return None
+        return response.data.reaction_id
+
+    def remove_reaction(self, message_id: str, reaction_id: str) -> None:
+        """移除 emoji reaction（失败静默，不阻塞流程）。"""
+        request = (
+            DeleteMessageReactionRequest.builder()
+            .message_id(message_id)
+            .reaction_id(reaction_id)
+            .build()
+        )
+        response = self._client.im.v1.message_reaction.delete(request)
+        if not response.success():
+            log.debug("移除 reaction 失败（非阻塞）: code=%s, msg=%s", response.code, response.msg)

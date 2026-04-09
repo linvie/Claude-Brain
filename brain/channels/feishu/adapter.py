@@ -116,3 +116,15 @@ class FeishuAdapter(ChannelAdapter):
         await loop.run_in_executor(
             None, self._client.edit_text, message_id, text
         )
+
+    async def add_reaction(self, message_id: str) -> str | None:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None, self._client.add_reaction, message_id, "OnIt"
+        )
+
+    async def remove_reaction(self, message_id: str, reaction_id: str) -> None:
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, self._client.remove_reaction, message_id, reaction_id
+        )

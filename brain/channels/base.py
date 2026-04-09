@@ -60,3 +60,11 @@ class ChannelAdapter(ABC):
     async def edit(self, message_id: str, text: str) -> None:
         """编辑已发消息（流式更新用）。"""
         ...
+
+    async def add_reaction(self, message_id: str) -> str | None:
+        """添加"思考中"emoji reaction，返回 reaction_id。"""
+        return None
+
+    async def remove_reaction(self, message_id: str, reaction_id: str) -> None:
+        """移除 emoji reaction。"""
+        pass

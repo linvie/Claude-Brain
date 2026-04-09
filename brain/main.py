@@ -102,7 +102,7 @@ async def _notion_poll_loop(conn, shutdown: asyncio.Event):
 # ---------------------------------------------------------------------------
 
 async def _handle_channel_message(incoming, adapter, conn):
-    """处理来自 channel 的消息：发占位 → 执行 CC → 编辑结果。"""
+    """处理来自 channel 的消息：reaction → CC 执行 → 回复 → 移除 reaction。"""
     from brain.channels.base import OutgoingMessage
     from brain.executor.cc import execute
     from brain.memory.extractor import extract_and_store
@@ -110,20 +110,12 @@ async def _handle_channel_message(incoming, adapter, conn):
     from brain.session.manager import get_active_session, save_session, touch_session
 
     channel_id = incoming.channel_id
-
-    # 1. 发送"思考中..."占位消息
-    try:
-        placeholder_msg = OutgoingMessage(
-            channel_id=channel_id,
-            text="思考中...",
-            reply_to=incoming.message_id,
-        )
-        placeholder_id = await adapter.send(placeholder_msg)
-    except Exception:
-        log_feishu.exception("发送占位消息失败")
-        return
+    reaction_id = None
 
     try:
+        # 1. 添加 emoji reaction 表示正在处理
+        reaction_id = await adapter.add_reaction(incoming.message_id)
+
         # 2. 查找或创建 session
         session_id = get_active_session(conn, channel_id)
         if session_id:
@@ -148,11 +140,14 @@ async def _handle_channel_message(incoming, adapter, conn):
         if new_session_id:
             save_session(conn, channel_id, new_session_id)
 
-        # 6. 编辑占位消息为结果
-        if result_text:
-            await adapter.edit(placeholder_id, result_text)
-        else:
-            await adapter.edit(placeholder_id, "（CC 未返回结果）")
+        # 6. 回复结果
+        reply_text = result_text if result_text else "（CC 未返回结果）"
+        reply_msg = OutgoingMessage(
+            channel_id=channel_id,
+            text=reply_text,
+            reply_to=incoming.message_id,
+        )
+        await adapter.send(reply_msg)
 
         # 7. 提取记忆
         if result_text:
@@ -161,9 +156,18 @@ async def _handle_channel_message(incoming, adapter, conn):
     except Exception:
         log_feishu.exception("处理消息异常: channel=%s", channel_id)
         try:
-            await adapter.edit(placeholder_id, "处理消息时发生错误，请稍后重试。")
+            error_msg = OutgoingMessage(
+                channel_id=channel_id,
+                text="处理消息时发生错误，请稍后重试。",
+                reply_to=incoming.message_id,
+            )
+            await adapter.send(error_msg)
         except Exception:
             pass
+    finally:
+        # 8. 移除 reaction（无论成功失败）
+        if reaction_id:
+            await adapter.remove_reaction(incoming.message_id, reaction_id)
 
 
 # ---------------------------------------------------------------------------
