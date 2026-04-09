@@ -137,11 +137,8 @@ def cmd_start():
     if _has_running_pid():
         print("服务已在运行")
         return
-    _run(f"launchctl enable {DOMAIN}/{LABEL}", check=False)
-    if _is_loaded():
-        _run(f"launchctl kickstart {DOMAIN}/{LABEL}", check=False)
-    else:
-        _run(f"launchctl bootstrap {DOMAIN} {PLIST_PATH}", check=False)
+    # bootstrap 加载 plist 并启动（KeepAlive 生效）
+    _run(f"launchctl bootstrap {DOMAIN} {PLIST_PATH}", check=False)
     print("✓ 服务已启动")
 
 
@@ -149,15 +146,9 @@ def cmd_stop():
     if not _is_loaded():
         print("服务未在运行")
         return
-    # disable 阻止 KeepAlive 自动重启
-    _run(f"launchctl disable {DOMAIN}/{LABEL}", check=False)
-    time.sleep(0.5)
-    # kill 进程，可能需要多次（KeepAlive 可能在 disable 生效前重启了一次）
-    for _ in range(3):
-        _run(f"launchctl kill SIGTERM {DOMAIN}/{LABEL}", check=False)
-        time.sleep(1)
-        if not _has_running_pid():
-            break
+    # bootout 彻底卸载服务：终止进程 + 移除 KeepAlive，不会自动重启
+    # plist 文件保留，start 时重新 bootstrap
+    _run(f"launchctl bootout {DOMAIN}/{LABEL}", check=False)
     print("✓ 服务已停止")
 
 
