@@ -30,3 +30,17 @@ if not DB_PATH.is_absolute():
 REMOTE_ENABLED = CONFIG.get("remote", {}).get("enabled", False)
 REMOTE_HOST = CONFIG.get("remote", {}).get("host", "localhost")
 REMOTE_SHARE_DIR = Path(CONFIG.get("remote", {}).get("share_dir", "~/brain-shared")).expanduser()
+
+# Notion 启用判断（token 非空即启用）
+NOTION_ENABLED = bool(CONFIG.get("notion", {}).get("token", ""))
+
+# v2: 飞书配置
+_feishu_cfg = CONFIG.get("feishu", {})
+FEISHU_ENABLED = _feishu_cfg.get("enabled", False)
+FEISHU_APP_ID = _feishu_cfg.get("app_id", "")
+FEISHU_APP_SECRET = _feishu_cfg.get("app_secret", "")
+
+# v2: Session 配置
+_session_cfg = CONFIG.get("session", {})
+SESSION_IDLE_TIMEOUT = _session_cfg.get("idle_timeout", 600)       # 空闲超时（秒），默认 10 分钟
+SESSION_MAX_AGE = _session_cfg.get("max_age", 604800)              # 最大存活时间（秒），默认 7 天

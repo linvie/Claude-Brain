@@ -65,6 +65,19 @@ workspace:
 database:
   path: ./state.db               # SQLite 数据库路径
 
+# === v2 配置（飞书对话 + 记忆系统） ===
+
+# 飞书 Bot 配置
+feishu:
+  enabled: false
+  app_id: ""                   # 飞书应用 App ID
+  app_secret: ""               # 飞书应用 App Secret
+
+# Session 管理
+session:
+  idle_timeout: 600            # 空闲多久后 hibernate（秒），默认 10 分钟
+  max_age: 604800              # session 最大存活时间（秒），默认 7 天（超过开新 session）
+
 # 日志
 logging:
   level: DEBUG                   # 文件日志级别（控制台固定 INFO）
