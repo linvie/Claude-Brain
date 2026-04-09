@@ -120,26 +120,40 @@ def cmd_uninstall():
     print("✓ 服务已卸载")
 
 
+def _has_running_pid() -> bool:
+    r = _run(f"launchctl print {DOMAIN}/{LABEL}", check=False)
+    return "pid =" in r.stdout and r.returncode == 0
+
+
 def cmd_start():
-    if not _is_loaded():
+    if not PLIST_PATH.exists():
         print("服务未安装，请先运行 ccbrain install")
         sys.exit(1)
-    r = _run(f"launchctl kickstart {DOMAIN}/{LABEL}", check=False)
-    if r.returncode != 0:
-        print(f"启动失败（可能已在运行），尝试 ccbrain status 查看")
+    if _has_running_pid():
+        print("服务已在运行")
+        return
+    _run(f"launchctl enable {DOMAIN}/{LABEL}", check=False)
+    if _is_loaded():
+        _run(f"launchctl kickstart {DOMAIN}/{LABEL}", check=False)
     else:
-        print("✓ 服务已启动")
+        _run(f"launchctl bootstrap {DOMAIN} {PLIST_PATH}", check=False)
+    print("✓ 服务已启动")
 
 
 def cmd_stop():
     if not _is_loaded():
-        print("服务未安装")
-        sys.exit(1)
-    r = _run(f"launchctl kill SIGTERM {DOMAIN}/{LABEL}", check=False)
-    if r.returncode != 0:
         print("服务未在运行")
-    else:
-        print("✓ 已发送停止信号")
+        return
+    # disable 阻止 KeepAlive 自动重启
+    _run(f"launchctl disable {DOMAIN}/{LABEL}", check=False)
+    time.sleep(0.5)
+    # kill 进程，可能需要多次（KeepAlive 可能在 disable 生效前重启了一次）
+    for _ in range(3):
+        _run(f"launchctl kill SIGTERM {DOMAIN}/{LABEL}", check=False)
+        time.sleep(1)
+        if not _has_running_pid():
+            break
+    print("✓ 服务已停止")
 
 
 def cmd_restart():
