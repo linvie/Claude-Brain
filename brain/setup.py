@@ -192,6 +192,81 @@ def _setup_feishu(config: dict) -> bool:
     return True
 
 
+def _setup_lark_cli() -> bool:
+    """配置飞书 CLI（lark-cli），为 CC 提供飞书工具能力。"""
+    print("\n── 飞书 CLI 配置（CC 工具扩展）──")
+    print("  安装后 CC 可直接操作飞书：发消息、查日历、管理文档、查任务等")
+    print()
+
+    if not _confirm("安装飞书 CLI 工具?"):
+        return False
+
+    import shutil
+    import subprocess
+
+    # 检查 npm
+    if not shutil.which("npm"):
+        print("  ⚠ 未检测到 npm，请先安装 Node.js")
+        print("    brew install node  或  https://nodejs.org/")
+        return False
+
+    # 检查 lark-cli 是否已安装
+    if shutil.which("lark-cli"):
+        print("  ✓ lark-cli 已安装")
+    else:
+        print("  正在安装 lark-cli...")
+        r = subprocess.run(
+            ["npm", "install", "-g", "@larksuite/cli"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            print(f"  ⚠ 安装失败: {r.stderr[:200]}")
+            return False
+        print("  ✓ lark-cli 安装完成")
+
+    # 安装 Claude Code skills
+    print("  正在安装 CC skills（飞书工具集）...")
+    r = subprocess.run(
+        ["npx", "skills", "add", "larksuite/cli", "-y", "-g"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        print(f"  ⚠ skills 安装失败: {r.stderr[:200]}")
+        print("  可稍后手动运行: npx skills add larksuite/cli -y -g")
+    else:
+        print("  ✓ CC skills 安装完成（20 个飞书 skill）")
+
+    # 配置应用
+    print()
+    print("  接下来需要配置飞书应用并登录授权。")
+    print("  这会打开浏览器完成认证。")
+    print()
+
+    if _confirm("现在配置飞书应用?", default=True):
+        print("  正在打开飞书应用配置...")
+        subprocess.run(["lark-cli", "config", "init"])
+        print()
+        print("  正在进行登录授权...")
+        subprocess.run(["lark-cli", "auth", "login", "--recommend"])
+
+        # 验证
+        r = subprocess.run(
+            ["lark-cli", "auth", "status"],
+            capture_output=True, text=True,
+        )
+        if r.returncode == 0:
+            print(f"  ✓ 授权成功")
+            print(f"  {r.stdout.strip()[:200]}")
+        else:
+            print("  ⚠ 授权状态未确认，可稍后运行: lark-cli auth login --recommend")
+    else:
+        print("  稍后手动运行：")
+        print("    lark-cli config init")
+        print("    lark-cli auth login --recommend")
+
+    return True
+
+
 def main():
     print()
     print("  ╔══════════════════════════════════╗")
@@ -203,6 +278,7 @@ def main():
 
     notion_enabled = _setup_notion(config)
     feishu_enabled = _setup_feishu(config)
+    lark_cli = _setup_lark_cli() if feishu_enabled else False
 
     _save_config(config)
 
@@ -211,6 +287,7 @@ def main():
     print(f"  数据目录:       {DATA_DIR}")
     print(f"  Notion 任务流:  {'已启用' if notion_enabled else '未启用'}")
     print(f"  飞书对话流:     {'已启用' if feishu_enabled else '未启用'}")
+    print(f"  飞书 CLI:       {'已配置' if lark_cli else '未配置'}")
     print()
 
     if not notion_enabled and not feishu_enabled:
