@@ -124,16 +124,22 @@ def cmd_start():
     if not _is_loaded():
         print("服务未安装，请先运行 ccbrain install")
         sys.exit(1)
-    _run(f"launchctl kickstart {DOMAIN}/{LABEL}")
-    print("✓ 服务已启动")
+    r = _run(f"launchctl kickstart {DOMAIN}/{LABEL}", check=False)
+    if r.returncode != 0:
+        print(f"启动失败（可能已在运行），尝试 ccbrain status 查看")
+    else:
+        print("✓ 服务已启动")
 
 
 def cmd_stop():
     if not _is_loaded():
         print("服务未安装")
         sys.exit(1)
-    _run(f"launchctl kill SIGTERM {DOMAIN}/{LABEL}")
-    print("✓ 已发送停止信号")
+    r = _run(f"launchctl kill SIGTERM {DOMAIN}/{LABEL}", check=False)
+    if r.returncode != 0:
+        print("服务未在运行")
+    else:
+        print("✓ 已发送停止信号")
 
 
 def cmd_restart():
