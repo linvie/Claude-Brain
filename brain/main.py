@@ -121,6 +121,9 @@ async def _enqueue_message(incoming, adapter, conn):
     await _channel_queues[cid].put(incoming)
 
 
+_KNOWN_COMMANDS = {"/btw", "/reset", "/status", "/help"}
+
+
 async def _channel_worker(channel_id: str, adapter, conn):
     """Per-channel worker：线性消费队列中的消息。"""
     queue = _channel_queues[channel_id]
@@ -128,8 +131,8 @@ async def _channel_worker(channel_id: str, adapter, conn):
         incoming = await queue.get()
         try:
             text = incoming.text.strip()
-            # 命令路由
-            if text.startswith("/"):
+            cmd = text.split(None, 1)[0].lower() if text else ""
+            if cmd in _KNOWN_COMMANDS:
                 await _handle_command(incoming, adapter, conn)
             else:
                 await _handle_chat(incoming, adapter, conn)
@@ -209,16 +212,11 @@ async def _handle_command(incoming, adapter, conn):
             reply_to=incoming.message_id,
         ))
 
-    else:
-        await adapter.send(OutgoingMessage(
-            channel_id=incoming.channel_id,
-            text=f"未知命令: {cmd}\n发 /help 查看可用命令。",
-            reply_to=incoming.message_id,
-        ))
+    # 不会走到这里，因为只有 _KNOWN_COMMANDS 才进入 _handle_command
 
 
 async def _run_background_task(incoming, adapter, conn, task_desc: str):
-    """后台执行 CC 任务，完成后回复。不阻塞 channel 队列。"""
+    """后台执行 CC 任务，完成后回复。同一 workspace，不阻塞队列。"""
     from brain.channels.base import OutgoingMessage
     from brain.executor.cc import execute
     from brain.session.manager import get_workspace
@@ -227,24 +225,28 @@ async def _run_background_task(incoming, adapter, conn, task_desc: str):
     workspace = get_workspace(channel_id)
 
     try:
+        # 同一个 workspace（共享文件、MCP、CLAUDE.md），但不 resume 主 session
         _, result_text = await execute(
             prompt=task_desc,
             cwd=workspace,
-            channel_id=f"{channel_id}:btw",  # 独立 session，不干扰主对话
+            channel_id=channel_id,
         )
         reply = result_text if result_text else "（后台任务完成，无输出）"
         await adapter.send(OutgoingMessage(
             channel_id=channel_id,
-            text=f"**后台任务完成：** {task_desc[:30]}\n\n{reply}",
+            text=f"**后台任务完成：** {task_desc[:50]}\n\n{reply}",
             reply_to=incoming.message_id,
         ))
     except Exception:
         log_feishu.exception("后台任务异常: channel=%s", channel_id)
-        await adapter.send(OutgoingMessage(
-            channel_id=channel_id,
-            text=f"后台任务失败: {task_desc[:30]}",
-            reply_to=incoming.message_id,
-        ))
+        try:
+            await adapter.send(OutgoingMessage(
+                channel_id=channel_id,
+                text=f"后台任务失败: {task_desc[:50]}",
+                reply_to=incoming.message_id,
+            ))
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
