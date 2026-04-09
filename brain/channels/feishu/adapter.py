@@ -77,8 +77,17 @@ class FeishuAdapter(ChannelAdapter):
         )
 
         log.info("[feishu] 正在连接 WebSocket...")
-        # ws.Client.start() 是阻塞的，放到线程里跑
-        await self._loop.run_in_executor(None, self._ws_client.start)
+        # ws.Client.start() 内部调用 loop.run_until_complete()，
+        # 必须在独立线程 + 独立 event loop 中运行，否则和主循环冲突
+        import threading
+        thread = threading.Thread(target=self._ws_client.start, daemon=True)
+        thread.start()
+        # 保持 async task 存活，直到被取消
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            pass
 
     async def stop(self):
         """停止 adapter（ws client 没有优雅关闭方法，依赖进程退出）。"""
