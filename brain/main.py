@@ -102,13 +102,34 @@ async def _notion_poll_loop(conn, shutdown: asyncio.Event):
 # v2: Per-channel 队列 + 命令路由
 # ---------------------------------------------------------------------------
 
-# channel_id → asyncio.Queue，保证同一 channel 线性处理
+# Brain 直接处理的命令（不需要 CC，立即响应）
+_INSTANT_COMMANDS = {"/reset", "/status", "/help"}
+# 需要 CC 但不阻塞队列的命令
+_BACKGROUND_COMMANDS = {"/btw"}
+
+# channel_id → asyncio.Queue，只有普通对话消息才入队
 _channel_queues: dict[str, asyncio.Queue] = {}
 _channel_workers: dict[str, asyncio.Task] = {}
 
 
-async def _enqueue_message(incoming, adapter, conn):
-    """将消息放入 per-channel 队列。首次自动启动 worker。"""
+async def _dispatch_message(incoming, adapter, conn):
+    """消息分流：命令立即处理，对话排队。"""
+    text = incoming.text.strip()
+    cmd = text.split(None, 1)[0].lower() if text else ""
+
+    if cmd in _INSTANT_COMMANDS:
+        # 立即响应，不入队
+        await _handle_command(incoming, adapter, conn)
+    elif cmd in _BACKGROUND_COMMANDS:
+        # 立即响应 + 后台 CC，不入队
+        await _handle_command(incoming, adapter, conn)
+    else:
+        # 普通对话：入 per-channel 队列，线性处理
+        await _enqueue_chat(incoming, adapter, conn)
+
+
+async def _enqueue_chat(incoming, adapter, conn):
+    """将对话消息放入 per-channel 队列。"""
     cid = incoming.channel_id
     if cid not in _channel_queues:
         _channel_queues[cid] = asyncio.Queue()
@@ -121,21 +142,13 @@ async def _enqueue_message(incoming, adapter, conn):
     await _channel_queues[cid].put(incoming)
 
 
-_KNOWN_COMMANDS = {"/btw", "/reset", "/status", "/help"}
-
-
 async def _channel_worker(channel_id: str, adapter, conn):
-    """Per-channel worker：线性消费队列中的消息。"""
+    """Per-channel worker：线性消费队列中的对话消息。"""
     queue = _channel_queues[channel_id]
     while True:
         incoming = await queue.get()
         try:
-            text = incoming.text.strip()
-            cmd = text.split(None, 1)[0].lower() if text else ""
-            if cmd in _KNOWN_COMMANDS:
-                await _handle_command(incoming, adapter, conn)
-            else:
-                await _handle_chat(incoming, adapter, conn)
+            await _handle_chat(incoming, adapter, conn)
         except Exception:
             log_feishu.exception("worker 异常: channel=%s", channel_id)
         finally:
@@ -360,7 +373,7 @@ async def main():
             allowed_users=FEISHU_ALLOWED_USERS or None,
         )
         feishu_adapter.on_message(
-            lambda msg: _enqueue_message(msg, feishu_adapter, conn)
+            lambda msg: _dispatch_message(msg, feishu_adapter, conn)
         )
         t = asyncio.create_task(feishu_adapter.start(), name="feishu-ws")
         t.add_done_callback(_on_task_exception)
