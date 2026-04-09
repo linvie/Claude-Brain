@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import sqlite3
 
-from brain.infra.logger import log
+from brain.infra.logger import log_memory as log
 from brain.memory.store import add_memory
 
 # 匹配常见的"事实陈述"模式

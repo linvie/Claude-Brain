@@ -12,7 +12,7 @@ from lark_oapi.api.im.v1 import (
     UpdateMessageRequestBody,
 )
 
-from brain.infra.logger import log
+from brain.infra.logger import log_feishu as log
 
 
 class FeishuClient:

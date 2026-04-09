@@ -6,7 +6,7 @@ import json
 import sqlite3
 import time
 
-from brain.infra.logger import log
+from brain.infra.logger import log_memory as log
 
 
 def init_memory_tables(conn: sqlite3.Connection):

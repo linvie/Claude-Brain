@@ -118,7 +118,7 @@ cmd_logs() {
     local log_file="${LOGS_DIR}/${name}.log"
     if [ ! -f "$log_file" ]; then
         echo "日志文件不存在: $log_file"
-        echo "可用日志: brain, scheduler, cc, notion, launchd.stdout, launchd.stderr"
+        echo "可用日志: brain, scheduler, cc, notion, feishu, session, memory, launchd.stdout, launchd.stderr"
         exit 1
     fi
     tail -f "$log_file"

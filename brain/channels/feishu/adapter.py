@@ -11,7 +11,7 @@ from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
 
 from brain.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
 from brain.channels.feishu.client import FeishuClient
-from brain.infra.logger import log
+from brain.infra.logger import log_feishu as log
 
 
 class FeishuAdapter(ChannelAdapter):

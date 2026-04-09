@@ -152,14 +152,17 @@ uv run python -m brain    # Ctrl+C 停止
 
 ### 日志
 
-`logs/` 目录下 4 个分类日志：
+`logs/` 目录下 7 个分类日志，所有日志同时输出到终端（`[模块名]` 标识来源）：
 
 | 文件 | 内容 |
 |---|---|
-| `brain.log` | 全量日志 |
-| `scheduler.log` | 任务生命周期（分发、完成、阻塞、超时） |
+| `brain.log` | 全量日志（所有模块的汇总） |
+| `scheduler.log` | v1 任务生命周期（分发、完成、阻塞、超时） |
 | `cc.log` | CC 进程事件（启动、退出、输出） |
 | `notion.log` | Notion API 调用记录 |
+| `feishu.log` | v2 飞书消息收发 |
+| `session.log` | v2 Session 生命周期（创建、复用、过期） |
+| `memory.log` | v2 记忆存取（添加、检索、提取） |
 
 ## 参考
 

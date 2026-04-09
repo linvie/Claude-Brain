@@ -6,7 +6,7 @@ import sqlite3
 import time
 
 from brain.config import SESSION_IDLE_TIMEOUT, SESSION_MAX_AGE
-from brain.infra.logger import log
+from brain.infra.logger import log_session as log
 
 
 def init_session_tables(conn: sqlite3.Connection):

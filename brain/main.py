@@ -22,7 +22,7 @@ from brain.core.outbox import check_all_outboxes
 from brain.core.tester import check_tester_stops
 from brain.core.watchdog import watchdog
 from brain.infra.db import get_db, running_task_count
-from brain.infra.logger import log, log_scheduler
+from brain.infra.logger import log, log_feishu, log_scheduler
 from brain.integrations.notion import fetch_ready_tasks
 
 _shutdown_event: asyncio.Event | None = None
@@ -120,7 +120,7 @@ async def _handle_channel_message(incoming, adapter, conn):
         )
         placeholder_id = await adapter.send(placeholder_msg)
     except Exception:
-        log.exception("[handler] 发送占位消息失败")
+        log_feishu.exception("发送占位消息失败")
         return
 
     try:
@@ -128,7 +128,7 @@ async def _handle_channel_message(incoming, adapter, conn):
         session_id = get_active_session(conn, channel_id)
         if session_id:
             touch_session(conn, channel_id, session_id)
-            log.info("[handler] 复用 session: channel=%s, session=%s", channel_id, session_id)
+            log_feishu.info("复用 session: channel=%s, session=%s", channel_id, session_id)
 
         # 3. 组装记忆 context
         memory_context = build_memory_context(conn, incoming.text)
@@ -159,7 +159,7 @@ async def _handle_channel_message(incoming, adapter, conn):
             extract_and_store(conn, result_text, source=f"feishu:{channel_id}")
 
     except Exception:
-        log.exception("[handler] 处理消息异常: channel=%s", channel_id)
+        log_feishu.exception("处理消息异常: channel=%s", channel_id)
         try:
             await adapter.edit(placeholder_id, "处理消息时发生错误，请稍后重试。")
         except Exception:
