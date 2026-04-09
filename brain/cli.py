@@ -179,17 +179,74 @@ CCBrain — Claude Code Brain Daemon
 用法: ccbrain <command>
 
 命令:
-  init        交互式配置向导（首次使用）
-  run         前台运行（调试用，Ctrl+C 停止）
-  install     注册 launchd 服务并启动
-  uninstall   卸载服务
-  start       启动服务
-  stop        停止服务（优雅关闭）
-  restart     重启服务
-  status      查看运行状态
-  logs [name] 查看日志（brain, scheduler, cc, notion, feishu, session, memory）
+  init              交互式配置向导（首次使用）
+  config <sub>      配置管理（show/edit/feishu/notion/lark-cli）
+  run               前台运行（调试用，Ctrl+C 停止）
+  install           注册 launchd 服务并启动
+  uninstall         卸载服务（不删除数据）
+  start             启动服务
+  stop              停止服务（优雅关闭）
+  restart           重启服务
+  status            查看运行状态
+  logs [name]       查看日志（brain, scheduler, cc, notion, feishu, session, memory）
 
 数据目录: {DATA_DIR}""")
+
+
+def cmd_config(args: list[str]):
+    """配置管理：查看、修改配置项，安装扩展工具。"""
+    sub = args[0] if args else ""
+
+    if sub == "edit":
+        # 直接打开编辑器
+        import os as _os
+        editor = _os.environ.get("EDITOR", "vim")
+        from brain.config import CONFIG_PATH
+        if not CONFIG_PATH.exists():
+            print(f"配置文件不存在，请先运行 ccbrain init")
+            sys.exit(1)
+        _os.execvp(editor, [editor, str(CONFIG_PATH)])
+
+    elif sub == "path":
+        from brain.config import CONFIG_PATH
+        print(CONFIG_PATH)
+
+    elif sub == "show":
+        from brain.config import CONFIG_PATH
+        if CONFIG_PATH.exists():
+            print(CONFIG_PATH.read_text())
+        else:
+            print("配置文件不存在，请先运行 ccbrain init")
+
+    elif sub == "lark-cli":
+        from brain.setup import _setup_lark_cli
+        _setup_lark_cli()
+
+    elif sub == "notion":
+        from brain.setup import _setup_notion, _load_config, _save_config, _ensure_data_dir
+        _ensure_data_dir()
+        config = _load_config()
+        _setup_notion(config)
+        _save_config(config)
+
+    elif sub == "feishu":
+        from brain.setup import _setup_feishu, _load_config, _save_config, _ensure_data_dir
+        _ensure_data_dir()
+        config = _load_config()
+        _setup_feishu(config)
+        _save_config(config)
+
+    else:
+        print("""\
+用法: ccbrain config <subcommand>
+
+子命令:
+  show        显示当前配置
+  edit        用编辑器打开 config.yaml
+  path        输出配置文件路径
+  feishu      重新配置飞书连接
+  notion      重新配置 Notion 连接
+  lark-cli    安装/配置飞书 CLI 工具""")
 
 
 def _version() -> str:
@@ -218,6 +275,7 @@ def main():
 
     match cmd:
         case "init":      cmd_init()
+        case "config":    cmd_config(args[1:])
         case "run":       cmd_run()
         case "install":   cmd_install()
         case "uninstall": cmd_uninstall()
