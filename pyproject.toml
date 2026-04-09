@@ -1,8 +1,10 @@
 [project]
-name = "claude-brain"
-version = "0.1.0"
-description = "Notion → Brain daemon → Claude Code 个人异步任务自动化系统"
+name = "ccbrain"
+version = "0.2.0"
+description = "Personal AI daemon — Feishu chat + Notion tasks, powered by Claude Code"
 requires-python = ">=3.12"
+readme = "README.md"
+license = {text = "MIT"}
 dependencies = [
     "pyyaml>=6.0",
     "requests>=2.31",

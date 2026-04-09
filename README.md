@@ -28,9 +28,15 @@ Notion（写需求）→ Brain（自动调度）→ Claude Code（执行）→ N
 ### 1. 安装
 
 ```bash
-git clone <repo-url> && cd Claude-Brain
-uv tool install -e .   # 注册 ccbrain 全局命令
+# 方式 A：直接安装（推荐，任何设备）
+uv tool install git+https://github.com/linvie/Claude-Brain.git
+
+# 方式 B：本地开发（可编辑模式，代码改了立即生效）
+git clone https://github.com/linvie/Claude-Brain.git && cd Claude-Brain
+uv tool install -e .
 ```
+
+安装后 `ccbrain` 命令全局可用。升级：`uv tool upgrade ccbrain`。
 
 ### 2. 交互式配置
 

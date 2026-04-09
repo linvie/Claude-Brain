@@ -192,9 +192,29 @@ CCBrain — Claude Code Brain Daemon
 数据目录: {DATA_DIR}""")
 
 
+def _version() -> str:
+    try:
+        from importlib.metadata import version
+        return version("ccbrain")
+    except Exception:
+        pass
+    # fallback: 读 pyproject.toml
+    toml = SRC_DIR / "pyproject.toml"
+    if toml.exists():
+        import re
+        m = re.search(r'version\s*=\s*"([^"]+)"', toml.read_text())
+        if m:
+            return m.group(1)
+    return "dev"
+
+
 def main():
     args = sys.argv[1:]
     cmd = args[0] if args else ""
+
+    if cmd in ("--version", "-v"):
+        print(f"ccbrain {_version()}")
+        return
 
     match cmd:
         case "init":      cmd_init()
