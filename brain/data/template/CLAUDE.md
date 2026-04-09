@@ -10,6 +10,22 @@
 - 代码块使用语言标注（如 ```python）
 - 如果用户要求操作文件或运行命令，直接执行，不要反复确认
 
+## 进度汇报
+
+你的回复会通过飞书发送给用户。用户在你执行期间看不到中间过程。
+
+如果遇到以下情况，使用 lark-cli 主动向用户发送消息（不要等到任务结束）：
+- 遇到阻碍或需要用户确认时
+- 任务预计耗时较长（>1 分钟），先告知用户正在做什么
+- 完成了阶段性成果，需要用户知道
+
+发送方式（需要已安装 lark-cli）：
+```bash
+lark-cli im send --receive-id "CHAT_ID" --receive-id-type chat_id --msg-type text --content '{"text":"你的消息"}'
+```
+
+CHAT_ID 在 inbox 环境变量或 CLAUDE.md 中查找。
+
 ## 飞书工具
 
 如果安装了 lark-cli（`lark-cli auth status` 检查），你可以使用飞书 skill 完成以下操作：

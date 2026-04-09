@@ -58,6 +58,8 @@ def _init_workspace(workspace: Path, channel_id: str):
                 dest = workspace / src.name
                 if not dest.exists():
                     shutil.copytree(src, dest)
+        # 注入 channel_id 到 CLAUDE.md
+        _inject_channel_id(workspace, channel_id)
     else:
         # 无模板时创建基础 CLAUDE.md
         claude_md = workspace / "CLAUDE.md"
@@ -67,6 +69,20 @@ def _init_workspace(workspace: Path, channel_id: str):
                 f"Channel: {channel_id}\n\n"
                 "这是 CCBrain 的工作目录。你可以在这里自由工作。\n"
             )
+
+
+def _inject_channel_id(workspace: Path, channel_id: str):
+    """在 CLAUDE.md 末尾追加 channel_id，供 CC 发送消息时使用。"""
+    claude_md = workspace / "CLAUDE.md"
+    if not claude_md.exists():
+        return
+    content = claude_md.read_text()
+    if "CHAT_ID" not in content and channel_id not in content:
+        return  # 模板里没有 CHAT_ID 占位符，不注入
+    # 替换占位符
+    content = content.replace("CHAT_ID", channel_id)
+    claude_md.write_text(content)
+    log.debug("注入 channel_id: %s → CLAUDE.md", channel_id)
 
 
 # ---------------------------------------------------------------------------
