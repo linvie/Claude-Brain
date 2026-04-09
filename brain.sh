@@ -124,22 +124,29 @@ cmd_logs() {
     tail -f "$log_file"
 }
 
+cmd_init() {
+    cd "$BRAIN_DIR"
+    "$UV_PATH" run python -m brain.setup
+}
+
 usage() {
     cat <<EOF
 用法: ./brain.sh <command>
 
 命令:
+  init        交互式配置向导（首次使用）
   install     安装 launchd 服务（注册并启动）
   uninstall   卸载服务
   start       启动服务
   stop        停止服务（优雅关闭）
   restart     重启服务
   status      查看运行状态
-  logs [name] 查看日志（默认 brain，可选: scheduler, cc, notion）
+  logs [name] 查看日志（brain, scheduler, cc, notion, feishu, session, memory）
 EOF
 }
 
 case "${1:-}" in
+    init)      cmd_init ;;
     install)   cmd_install ;;
     uninstall) cmd_uninstall ;;
     start)     cmd_start ;;

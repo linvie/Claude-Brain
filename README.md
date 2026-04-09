@@ -24,53 +24,60 @@ Notion（写需求）→ Brain（自动调度）→ Claude Code（执行）→ N
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/)
 - [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)（`claude` 命令可用）
-- Notion 账号
 
 ### 1. 安装
 
 ```bash
 git clone <repo-url> && cd Claude-Brain
 uv sync
-cp config.example.yaml config.yaml
 ```
 
-### 2. 配置 Notion
-
-创建 Integration 并获取 Token：
-
-1. 前往 https://www.notion.com/my-integrations → **New integration** → 命名为 `Claude Brain`
-2. 确保勾选 Read/Update/Insert content
-3. 复制 **Internal Integration Secret**（`ntn_` 开头）
-4. 在 Notion 中为 integration 授权：打开目标页面 → `...` → `Connections` → 添加 `Claude Brain`
-
-### 3. 初始化数据库
-
-**推荐：自动配置**
+### 2. 交互式配置
 
 ```bash
-# 配置 Notion MCP（Planner CC 需要）
+./brain.sh init
+```
+
+配置向导会引导你完成所有设置：
+
+- **Notion 任务流**（可选）：异步任务自动化，在 Notion 写需求、查看结果
+- **飞书对话流**（可选）：实时对话，在飞书直接和 CC 对话
+
+每个功能独立开关，未配置的自动跳过。
+
+<details>
+<summary>Notion 额外步骤（如启用）</summary>
+
+1. 前往 https://www.notion.com/my-integrations → **New integration** → 获取 Token
+2. 在向导中填入 Token
+3. 在 Claude Code 中运行 `/brain-init` 自动创建数据库（或手动创建，见[手动创建 Notion 数据库](#手动创建-notion-数据库)）
+4. 配置 Notion MCP（Planner CC 需要）：
+
+```bash
 claude mcp add notion --transport stdio --scope user \
   -e NOTION_TOKEN=<你的token> \
   -- npx -y @notionhq/notion-mcp-server
-
-# 在 Claude Code 中打开项目，一键初始化
-/brain-init
 ```
 
-自动创建 Project/Task 数据库并写入 `config.yaml`。
+</details>
 
-> 手动配置方式见 [手动创建 Notion 数据库](#手动创建-notion-数据库)。
+<details>
+<summary>飞书额外步骤（如启用）</summary>
 
-### 4. 填入 Token 并启动
+1. 前往 https://open.feishu.cn/app → 创建企业自建应用
+2. 启用「机器人」能力
+3. 订阅事件 `im.message.receive_v1`，接收方式选「使用长连接接收事件」
+4. 添加权限：`im:message`、`im:message:send_as_bot`
+5. 发布应用版本
+6. 在向导中填入 App ID 和 App Secret
 
-```yaml
-# config.yaml
-notion:
-  token: "ntn_你的token"
-```
+</details>
+
+### 3. 启动
 
 ```bash
-uv run python -m brain
+./brain.sh install   # 首次：注册 launchd 服务并启动
+./brain.sh start     # 后续：启动服务
 ```
 
 ## 使用指南
