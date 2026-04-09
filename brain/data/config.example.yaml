@@ -1,0 +1,75 @@
+# CCBrain 配置
+# 此文件由 ccbrain init 自动创建到 ~/.ccbrain/config.yaml
+# 数据目录（logs、state.db、workspaces）固定在 ~/.ccbrain/ 下
+
+# ── 轮询间隔 ──
+scheduler:
+  idle_interval: 1800      # 空闲时轮询间隔（秒），默认 30 分钟
+  active_interval: 30      # 有运行中任务时轮询 outbox 间隔（秒）
+  cooldown_interval: 120   # 任务完成后的密集轮询间隔（秒），默认 2 分钟
+  cooldown_duration: 900   # 密集轮询持续时长（秒），默认 15 分钟
+  max_concurrent: 3        # 最大同时运行 CC 进程数
+
+# ── 任务超时 ──
+task:
+  max_duration: 7200       # 单任务最大运行时长（秒），默认 2 小时
+
+# ── Notion 配置（可选，ccbrain init 引导填写）──
+notion:
+  token: ""                # Notion Integration Token（ntn_xxx）
+  project_db_id: ""        # Project 数据库 ID
+  task_db_id: ""           # Task 数据库 ID
+
+# ── CC 角色权限 ──
+roles:
+  planner:
+    allowed_tools:
+      - Read
+      - Write
+      - Edit
+      - mcp__notion__*
+    disallowed_tools:
+      - Bash
+  executor:
+    allowed_tools:
+      - Bash
+      - Read
+      - Write
+      - Edit
+      - MultiEdit
+      - Glob
+      - Grep
+    disallowed_tools:
+      - mcp__notion__*
+  tester:
+    allowed_tools:
+      - Bash
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+    disallowed_tools:
+      - mcp__notion__*
+
+# ── 远程开发模式 ──
+remote:
+  enabled: false
+  host: "mac-mini.tail1234.ts.net"
+  share_dir: ~/brain-shared
+
+# ── 飞书 Bot 配置（可选，ccbrain init 引导填写）──
+feishu:
+  enabled: false
+  app_id: ""               # 飞书应用 App ID
+  app_secret: ""           # 飞书应用 App Secret
+  allowed_users: []        # 授权用户 open_id 列表（空 = 不限制）
+
+# ── Session 管理 ──
+session:
+  idle_timeout: 600        # 空闲多久后 hibernate（秒），默认 10 分钟
+  max_age: 604800          # session 最大存活时间（秒），默认 7 天
+
+# ── 日志 ──
+logging:
+  level: DEBUG             # 文件日志级别（控制台固定 INFO）

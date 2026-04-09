@@ -265,13 +265,13 @@ def _version() -> str:
         return version("ccbrain")
     except Exception:
         pass
-    # fallback: 读 pyproject.toml
-    toml = SRC_DIR / "pyproject.toml"
-    if toml.exists():
-        import re
-        m = re.search(r'version\s*=\s*"([^"]+)"', toml.read_text())
-        if m:
-            return m.group(1)
+    # fallback: 读 pyproject.toml（editable 模式）
+    for candidate in [SRC_DIR / "pyproject.toml", SRC_DIR.parent / "pyproject.toml"]:
+        if candidate.exists():
+            import re
+            m = re.search(r'version\s*=\s*"([^"]+)"', candidate.read_text())
+            if m:
+                return m.group(1)
     return "dev"
 
 

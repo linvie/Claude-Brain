@@ -8,11 +8,11 @@ import sqlite3
 import time
 from pathlib import Path
 
-from brain.config import DATA_DIR, SESSION_IDLE_TIMEOUT, SRC_DIR, WORKSPACE_BASE
+from brain.config import DATA_DIR, RESOURCE_DIR, SESSION_IDLE_TIMEOUT, WORKSPACE_BASE
 from brain.infra.logger import log_session as log
 
-# CLAUDE.md 模板路径（源码目录下）
-_TEMPLATE_DIR = SRC_DIR / "templates" / "v2"
+# v2 workspace 模板（brain/data/template/）
+_TEMPLATE_DIR = RESOURCE_DIR / "template"
 
 
 def init_session_tables(conn: sqlite3.Connection):

@@ -4,15 +4,21 @@ from pathlib import Path
 
 import yaml
 
-# 源码目录（brain/ 包的父目录）
-SRC_DIR = Path(__file__).resolve().parent.parent
+# brain 包目录
+PKG_DIR = Path(__file__).resolve().parent
+
+# 源码目录（brain/ 包的父目录，editable 模式下有用）
+SRC_DIR = PKG_DIR.parent
+
+# 打包资源目录（brain/data/）
+RESOURCE_DIR = PKG_DIR / "data"
 
 # 运行时数据目录
 DATA_DIR = Path.home() / ".ccbrain"
 
 # 配置文件路径
 CONFIG_PATH = DATA_DIR / "config.yaml"
-CONFIG_EXAMPLE_PATH = SRC_DIR / "config.example.yaml"
+CONFIG_EXAMPLE_PATH = RESOURCE_DIR / "config.example.yaml"
 
 
 def load_config() -> dict:
