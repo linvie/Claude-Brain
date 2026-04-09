@@ -96,13 +96,18 @@ def cmd_install():
     if not DATA_DIR.exists():
         print("请先运行 ccbrain init")
         sys.exit(1)
-    if _is_loaded():
-        print("服务已安装，如需重新安装请先 ccbrain uninstall")
-        sys.exit(1)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     PLIST_PATH.write_text(_generate_plist())
-    _run(f"launchctl bootstrap {DOMAIN} {PLIST_PATH}")
+    # 如果已 loaded，先卸载再重新加载（覆盖安装）
+    if _is_loaded():
+        _run(f"launchctl bootout {DOMAIN}/{LABEL}", check=False)
+        time.sleep(1)
+    _run(f"launchctl enable {DOMAIN}/{LABEL}", check=False)
+    r = _run(f"launchctl bootstrap {DOMAIN} {PLIST_PATH}", check=False)
+    if r.returncode != 0:
+        print(f"安装失败: {r.stderr.strip()}")
+        sys.exit(1)
     print("✓ 服务已安装并启动")
     print(f"  plist: {PLIST_PATH}")
     print(f"  数据:  {DATA_DIR}/")
