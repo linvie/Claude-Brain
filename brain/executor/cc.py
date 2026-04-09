@@ -41,7 +41,7 @@ async def execute(
 
     options = ClaudeAgentOptions(
         cwd=str(cwd),
-        permission_mode="acceptEdits",
+        permission_mode="bypassPermissions",
         system_prompt=system_prompt,
         resume=resume,
         setting_sources=["project", "user"],
