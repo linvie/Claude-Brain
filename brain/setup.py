@@ -224,23 +224,25 @@ def _setup_lark_cli() -> bool:
             return False
         print("  ✓ lark-cli 安装完成")
 
-    # 安装 Claude Code skills
-    print("  正在安装 CC skills（飞书工具集，需要 clone 仓库，请稍候）...")
+    # 安装 Claude Code skills（交互式，输出到终端）
+    print("  正在安装 CC skills（飞书工具集）...")
+    print()
     try:
         r = subprocess.run(
             ["npx", "skills", "add", "larksuite/cli", "-y", "-g"],
-            stdin=subprocess.DEVNULL,
-            capture_output=True, text=True,
-            timeout=120,
+            timeout=180,
         )
-        if r.returncode == 0 or "Installation complete" in r.stdout:
-            print("  ✓ CC skills 安装完成（20 个飞书 skill）")
+        if r.returncode == 0:
+            print()
+            print("  ✓ CC skills 安装完成")
         else:
-            print(f"  ⚠ skills 安装可能未完成: {r.stderr[:200]}")
-            print("  可稍后手动运行: npx skills add larksuite/cli -y -g")
+            print()
+            print("  ⚠ skills 安装失败，请手动执行：")
+            print("    npx skills add larksuite/cli -y -g")
     except subprocess.TimeoutExpired:
-        print("  ⚠ skills 安装超时（可能已完成，npx 进程未正常退出）")
-        print("  验证: ls ~/.agents/skills/lark-*")
+        print()
+        print("  ⚠ skills 安装超时，请手动执行：")
+        print("    npx skills add larksuite/cli -y -g")
 
     # 配置应用
     print()
