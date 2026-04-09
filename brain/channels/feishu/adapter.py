@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
-
-import lark_oapi as lark
-from lark_oapi.api.im.v1 import P2ImMessageReceiveV1
 
 from brain.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
 from brain.channels.feishu.client import FeishuClient
@@ -23,16 +21,14 @@ class FeishuAdapter(ChannelAdapter):
         self._app_secret = app_secret
         self._client = FeishuClient(app_id, app_secret)
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._ws_client: lark.ws.Client | None = None
 
-    def _on_receive(self, data: P2ImMessageReceiveV1) -> None:
+    def _on_receive(self, data) -> None:
         """WebSocket 消息回调（在 ws 线程中执行）。"""
         msg = data.event.message
         sender = data.event.sender
 
-        # 只处理文本消息
         if msg.message_type != "text":
-            log.debug("[feishu] 忽略非文本消息: type=%s", msg.message_type)
+            log.debug("忽略非文本消息: type=%s", msg.message_type)
             return
 
         text = json.loads(msg.content).get("text", "")
@@ -48,41 +44,54 @@ class FeishuAdapter(ChannelAdapter):
             timestamp=time.time(),
         )
 
-        log.info("[feishu] 收到消息: channel=%s, user=%s, text=%s",
+        log.info("收到消息: channel=%s, user=%s, text=%s",
                  incoming.channel_id, incoming.user_id, text[:50])
 
-        # 从 ws 线程调度到 asyncio 事件循环
         if self._callback and self._loop:
             asyncio.run_coroutine_threadsafe(
                 self._callback(incoming),
                 self._loop,
             )
 
-    async def start(self):
-        """启动 WebSocket 长连接（在线程中运行，不阻塞事件循环）。"""
-        self._loop = asyncio.get_running_loop()
+    def _ws_thread_main(self):
+        """在独立线程 + 独立 event loop 中运行飞书 WebSocket。
 
-        # 注册事件处理器
+        lark_oapi.ws.client 模块在 import 时就缓存了 asyncio event loop，
+        所以必须在新线程设置好 event loop 之后再 import，否则会拿到主线程的 loop。
+        """
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        # 在新 event loop 下 import，让模块级 loop 变量绑定到这个 loop
+        import importlib
+        import lark_oapi.ws.client as ws_mod
+        importlib.reload(ws_mod)
+
+        import lark_oapi as lark
         event_handler = (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(self._on_receive)
             .build()
         )
 
-        self._ws_client = lark.ws.Client(
+        ws_client = ws_mod.Client(
             self._app_id,
             self._app_secret,
             event_handler=event_handler,
             log_level=lark.LogLevel.WARNING,
         )
 
-        log.info("[feishu] 正在连接 WebSocket...")
-        # ws.Client.start() 内部调用 loop.run_until_complete()，
-        # 必须在独立线程 + 独立 event loop 中运行，否则和主循环冲突
-        import threading
-        thread = threading.Thread(target=self._ws_client.start, daemon=True)
+        log.info("WebSocket 线程启动，正在连接...")
+        ws_client.start()
+
+    async def start(self):
+        """启动 WebSocket 长连接（在独立线程中运行）。"""
+        self._loop = asyncio.get_running_loop()
+
+        log.info("正在启动飞书 WebSocket...")
+        thread = threading.Thread(target=self._ws_thread_main, daemon=True)
         thread.start()
-        # 保持 async task 存活，直到被取消
+
         try:
             while True:
                 await asyncio.sleep(3600)
@@ -90,11 +99,9 @@ class FeishuAdapter(ChannelAdapter):
             pass
 
     async def stop(self):
-        """停止 adapter（ws client 没有优雅关闭方法，依赖进程退出）。"""
-        log.info("[feishu] adapter 停止")
+        log.info("adapter 停止")
 
     async def send(self, msg: OutgoingMessage) -> str:
-        """发送消息（在线程中执行同步 API 调用）。"""
         loop = asyncio.get_running_loop()
         if msg.reply_to:
             return await loop.run_in_executor(
@@ -105,7 +112,6 @@ class FeishuAdapter(ChannelAdapter):
         )
 
     async def edit(self, message_id: str, text: str) -> None:
-        """编辑消息（在线程中执行同步 API 调用）。"""
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None, self._client.edit_text, message_id, text
