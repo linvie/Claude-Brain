@@ -244,9 +244,20 @@ claude-brain/
 │   │   ├── tester.py          # Tester 生命周期管理
 │   │   ├── protocol.py        # inbox/outbox JSON 格式定义
 │   │   └── process.py         # CC 子进程 + 测试脚本管理
-│   └── workspace/             # Workspace 管理层
-│       ├── manager.py         # git clone/pull/init
-│       └── setup.py           # 模板安装 + 上下文注入
+│   ├── workspace/             # Workspace 管理层
+│   │   ├── manager.py         # git clone/pull/init
+│   │   └── setup.py           # 模板安装 + 上下文注入
+│   ├── channels/              # v2: Channel adapter 层
+│   │   ├── base.py            # 抽象接口 + 标准消息格式
+│   │   └── feishu/            # 飞书实现（WebSocket + API）
+│   ├── executor/              # v2: CC SDK 执行层
+│   │   └── cc.py              # Claude Agent SDK 封装
+│   ├── session/               # v2: Session 生命周期
+│   │   └── manager.py         # channel→session 映射 + 过期管理
+│   └── memory/                # v2: Brain-owned 记忆系统
+│       ├── store.py           # SQLite CRUD
+│       ├── retriever.py       # 检索 + context 组装
+│       └── extractor.py       # 从 CC 输出提取记忆
 ├── templates/                 # CC 角色模板
 │   ├── planner/               # Planner CC
 │   ├── executor/              # Executor CC
