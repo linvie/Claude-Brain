@@ -63,16 +63,16 @@ class FeishuAdapter(ChannelAdapter):
     def _ws_thread_main(self):
         """在独立线程 + 独立 event loop 中运行飞书 WebSocket。
 
-        lark_oapi.ws.client 模块在 import 时就缓存了 asyncio event loop，
-        所以必须在新线程设置好 event loop 之后再 import，否则会拿到主线程的 loop。
+        lark_oapi.ws.client 模块在 import 时用 asyncio.get_event_loop() 缓存了
+        主线程的 event loop 到模块级变量 `loop`。在新线程中直接 patch 这个变量，
+        让 ws.Client.start() 使用新线程的 event loop。
         """
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
 
-        # 在新 event loop 下 import，让模块级 loop 变量绑定到这个 loop
-        import importlib
+        # 直接 patch 模块级 loop 变量
         import lark_oapi.ws.client as ws_mod
-        importlib.reload(ws_mod)
+        ws_mod.loop = new_loop
 
         import lark_oapi as lark
         event_handler = (
@@ -81,6 +81,7 @@ class FeishuAdapter(ChannelAdapter):
             .build()
         )
 
+        # 重新构造 Client（让 asyncio.Lock 绑定到新 loop）
         ws_client = ws_mod.Client(
             self._app_id,
             self._app_secret,
