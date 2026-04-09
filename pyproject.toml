@@ -18,4 +18,4 @@ build-backend = "hatchling.build"
 packages = ["brain"]
 
 [project.scripts]
-brain = "brain.cli:main"
+ccbrain = "brain.cli:main"

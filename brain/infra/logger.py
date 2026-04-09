@@ -9,21 +9,19 @@
 import logging
 from pathlib import Path
 
-from brain.config import BASE_DIR, CONFIG
+from brain.config import CONFIG, LOG_DIR
 
-log_cfg = CONFIG["logging"]
-log_dir = Path(log_cfg["dir"])
-if not log_dir.is_absolute():
-    log_dir = BASE_DIR / log_dir
-log_dir.mkdir(parents=True, exist_ok=True)
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+_log_level_name = CONFIG.get("logging", {}).get("level", "DEBUG")
+_file_level = getattr(logging, _log_level_name, logging.DEBUG)
 
 LOG_FORMAT = "%(asctime)s [%(levelname)s] [%(name)s] %(message)s"
 _formatter = logging.Formatter(LOG_FORMAT)
-_file_level = getattr(logging, log_cfg["level"])
 
 
 def _make_file_handler(filename: str) -> logging.FileHandler:
-    handler = logging.FileHandler(log_dir / filename)
+    handler = logging.FileHandler(LOG_DIR / filename)
     handler.setLevel(logging.DEBUG)
     handler.setFormatter(_formatter)
     return handler

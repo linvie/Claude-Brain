@@ -1,30 +1,41 @@
-"""配置加载 — 读取 config.yaml，导出 CONFIG 和派生常量。"""
+"""配置加载 — 读取 ~/.ccbrain/config.yaml，导出 CONFIG 和派生常量。"""
 
 from pathlib import Path
 
 import yaml
 
-# brain/ 包在项目根的子目录中，所以需要 .parent.parent 才能指向项目根
-BASE_DIR = Path(__file__).resolve().parent.parent
+# 源码目录（brain/ 包的父目录）
+SRC_DIR = Path(__file__).resolve().parent.parent
+
+# 运行时数据目录
+DATA_DIR = Path.home() / ".ccbrain"
+
+# 配置文件路径
+CONFIG_PATH = DATA_DIR / "config.yaml"
+CONFIG_EXAMPLE_PATH = SRC_DIR / "config.example.yaml"
 
 
 def load_config() -> dict:
-    with open(BASE_DIR / "config.yaml") as f:
-        return yaml.safe_load(f)
+    if not CONFIG_PATH.exists():
+        return {}
+    with open(CONFIG_PATH) as f:
+        return yaml.safe_load(f) or {}
 
 
 CONFIG = load_config()
 
-IDLE_INTERVAL = CONFIG["scheduler"]["idle_interval"]
-ACTIVE_INTERVAL = CONFIG["scheduler"]["active_interval"]
-COOLDOWN_INTERVAL = CONFIG["scheduler"].get("cooldown_interval", 120)
-COOLDOWN_DURATION = CONFIG["scheduler"].get("cooldown_duration", 900)
-MAX_CONCURRENT = CONFIG["scheduler"].get("max_concurrent", 3)
-MAX_TASK_DURATION = CONFIG["task"]["max_duration"]
-WORKSPACE_BASE = Path(CONFIG["workspace"]["base_dir"]).expanduser()
-DB_PATH = Path(CONFIG["database"]["path"])
-if not DB_PATH.is_absolute():
-    DB_PATH = BASE_DIR / DB_PATH
+# 调度
+IDLE_INTERVAL = CONFIG.get("scheduler", {}).get("idle_interval", 1800)
+ACTIVE_INTERVAL = CONFIG.get("scheduler", {}).get("active_interval", 30)
+COOLDOWN_INTERVAL = CONFIG.get("scheduler", {}).get("cooldown_interval", 120)
+COOLDOWN_DURATION = CONFIG.get("scheduler", {}).get("cooldown_duration", 900)
+MAX_CONCURRENT = CONFIG.get("scheduler", {}).get("max_concurrent", 3)
+MAX_TASK_DURATION = CONFIG.get("task", {}).get("max_duration", 7200)
+
+# 固定路径（全部在 ~/.ccbrain/ 下）
+WORKSPACE_BASE = DATA_DIR / "workspaces"
+DB_PATH = DATA_DIR / "state.db"
+LOG_DIR = DATA_DIR / "logs"
 
 # 远程开发模式
 REMOTE_ENABLED = CONFIG.get("remote", {}).get("enabled", False)
@@ -42,5 +53,5 @@ FEISHU_APP_SECRET = _feishu_cfg.get("app_secret", "")
 
 # v2: Session 配置
 _session_cfg = CONFIG.get("session", {})
-SESSION_IDLE_TIMEOUT = _session_cfg.get("idle_timeout", 600)       # 空闲超时（秒），默认 10 分钟
-SESSION_MAX_AGE = _session_cfg.get("max_age", 604800)              # 最大存活时间（秒），默认 7 天
+SESSION_IDLE_TIMEOUT = _session_cfg.get("idle_timeout", 600)
+SESSION_MAX_AGE = _session_cfg.get("max_age", 604800)

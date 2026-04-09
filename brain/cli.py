@@ -1,36 +1,37 @@
-"""Brain CLI — 全局命令行入口，任何目录下均可运行。
+"""CCBrain CLI — 全局命令行入口，任何目录下均可运行。
+
+数据目录: ~/.ccbrain/（config、state.db、logs、workspaces）
+源码目录: 通过 pip/uv 安装，与数据分离
 
 用法：
-    brain init          交互式配置向导
-    brain run           前台运行（调试用）
-    brain install       注册 launchd 服务并启动
-    brain uninstall     卸载 launchd 服务
-    brain start         启动服务
-    brain stop          停止服务
-    brain restart       重启服务
-    brain status        查看运行状态
-    brain logs [name]   tail -f 日志
+    ccbrain init          交互式配置向导
+    ccbrain run           前台运行（调试用）
+    ccbrain install       注册 launchd 服务并启动
+    ccbrain uninstall     卸载 launchd 服务
+    ccbrain start         启动服务
+    ccbrain stop          停止服务
+    ccbrain restart       重启服务
+    ccbrain status        查看运行状态
+    ccbrain logs [name]   tail -f 日志
 """
 
 import asyncio
 import os
+import re
 import subprocess
 import sys
 import time
 from pathlib import Path
+from shutil import which
 
-# 项目根目录：brain/cli.py → brain/ → 项目根
-BRAIN_DIR = Path(__file__).resolve().parent.parent
+from brain.config import DATA_DIR, LOG_DIR, SRC_DIR
 
-LABEL = "com.linvie.claude-brain"
+LABEL = "com.linvie.ccbrain"
 PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
-LOGS_DIR = BRAIN_DIR / "logs"
 DOMAIN = f"gui/{os.getuid()}"
 
 
 def _uv() -> str:
-    """找到 uv 可执行文件路径。"""
-    from shutil import which
     return which("uv") or str(Path.home() / ".local" / "bin" / "uv")
 
 
@@ -39,8 +40,7 @@ def _run(cmd: str, check: bool = True) -> subprocess.CompletedProcess:
 
 
 def _is_loaded() -> bool:
-    r = _run(f"launchctl print {DOMAIN}/{LABEL}", check=False)
-    return r.returncode == 0
+    return _run(f"launchctl print {DOMAIN}/{LABEL}", check=False).returncode == 0
 
 
 def _generate_plist() -> str:
@@ -56,18 +56,20 @@ def _generate_plist() -> str:
     <array>
         <string>{uv}</string>
         <string>run</string>
+        <string>--directory</string>
+        <string>{SRC_DIR}</string>
         <string>python</string>
         <string>-m</string>
         <string>brain</string>
     </array>
     <key>WorkingDirectory</key>
-    <string>{BRAIN_DIR}</string>
+    <string>{SRC_DIR}</string>
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>{LOGS_DIR}/launchd.stdout.log</string>
+    <string>{LOG_DIR}/launchd.stdout.log</string>
     <key>StandardErrorPath</key>
-    <string>{LOGS_DIR}/launchd.stderr.log</string>
+    <string>{LOG_DIR}/launchd.stderr.log</string>
 </dict>
 </plist>"""
 
@@ -82,21 +84,28 @@ def cmd_init():
 
 
 def cmd_run():
+    if not DATA_DIR.exists():
+        print(f"数据目录不存在: {DATA_DIR}")
+        print("请先运行 ccbrain init")
+        sys.exit(1)
     from brain.main import main
     asyncio.run(main())
 
 
 def cmd_install():
-    if _is_loaded():
-        print("服务已安装，如需重新安装请先 brain uninstall")
+    if not DATA_DIR.exists():
+        print("请先运行 ccbrain init")
         sys.exit(1)
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    if _is_loaded():
+        print("服务已安装，如需重新安装请先 ccbrain uninstall")
+        sys.exit(1)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     PLIST_PATH.parent.mkdir(parents=True, exist_ok=True)
     PLIST_PATH.write_text(_generate_plist())
     _run(f"launchctl bootstrap {DOMAIN} {PLIST_PATH}")
     print("✓ 服务已安装并启动")
     print(f"  plist: {PLIST_PATH}")
-    print(f"  日志:  {LOGS_DIR}/")
+    print(f"  数据:  {DATA_DIR}/")
 
 
 def cmd_uninstall():
@@ -113,7 +122,7 @@ def cmd_uninstall():
 
 def cmd_start():
     if not _is_loaded():
-        print("服务未安装，请先运行 brain install")
+        print("服务未安装，请先运行 ccbrain install")
         sys.exit(1)
     _run(f"launchctl kickstart {DOMAIN}/{LABEL}")
     print("✓ 服务已启动")
@@ -137,9 +146,7 @@ def cmd_status():
     if not _is_loaded():
         print("服务未安装")
         return
-
     r = _run(f"launchctl print {DOMAIN}/{LABEL}", check=False)
-    import re
     pid_match = re.search(r"pid = (\d+)", r.stdout)
     if pid_match:
         pid = pid_match.group(1)
@@ -151,7 +158,7 @@ def cmd_status():
 
 
 def cmd_logs(name: str = "brain"):
-    log_file = LOGS_DIR / f"{name}.log"
+    log_file = LOG_DIR / f"{name}.log"
     if not log_file.exists():
         print(f"日志文件不存在: {log_file}")
         print("可用: brain, scheduler, cc, notion, feishu, session, memory, launchd.stdout, launchd.stderr")
@@ -160,8 +167,10 @@ def cmd_logs(name: str = "brain"):
 
 
 def usage():
-    print("""\
-用法: brain <command>
+    print(f"""\
+CCBrain — Claude Code Brain Daemon
+
+用法: ccbrain <command>
 
 命令:
   init        交互式配置向导（首次使用）
@@ -172,7 +181,9 @@ def usage():
   stop        停止服务（优雅关闭）
   restart     重启服务
   status      查看运行状态
-  logs [name] 查看日志（brain, scheduler, cc, notion, feishu, session, memory）""")
+  logs [name] 查看日志（brain, scheduler, cc, notion, feishu, session, memory）
+
+数据目录: {DATA_DIR}""")
 
 
 def main():

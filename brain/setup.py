@@ -1,18 +1,14 @@
-"""交互式配置向导 — 引导用户完成 Brain 初始化配置。"""
+"""交互式配置向导 — 引导用户完成 CCBrain 初始化配置。"""
 
 import shutil
-import sys
 from pathlib import Path
 
 import yaml
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-CONFIG_PATH = BASE_DIR / "config.yaml"
-CONFIG_EXAMPLE_PATH = BASE_DIR / "config.example.yaml"
+from brain.config import CONFIG_EXAMPLE_PATH, CONFIG_PATH, DATA_DIR
 
 
 def _ask(prompt: str, default: str = "") -> str:
-    """带默认值的输入提示。"""
     if default:
         raw = input(f"  {prompt} [{default}]: ").strip()
         return raw or default
@@ -20,7 +16,6 @@ def _ask(prompt: str, default: str = "") -> str:
 
 
 def _confirm(prompt: str, default: bool = False) -> bool:
-    """y/n 确认。"""
     hint = "Y/n" if default else "y/N"
     raw = input(f"  {prompt} [{hint}]: ").strip().lower()
     if not raw:
@@ -28,33 +23,33 @@ def _confirm(prompt: str, default: bool = False) -> bool:
     return raw in ("y", "yes")
 
 
+def _ensure_data_dir():
+    """确保 ~/.ccbrain/ 目录存在。"""
+    if DATA_DIR.exists():
+        return
+    DATA_DIR.mkdir(parents=True)
+    print(f"  创建数据目录: {DATA_DIR}")
+
+
 def _load_config() -> dict:
-    """加载或创建 config.yaml。"""
     if CONFIG_PATH.exists():
-        print(f"\n  检测到已有配置: {CONFIG_PATH}")
+        print(f"  检测到已有配置: {CONFIG_PATH}")
         with open(CONFIG_PATH) as f:
             return yaml.safe_load(f) or {}
     else:
-        print(f"\n  从模板创建配置文件...")
+        print(f"  从模板创建配置文件...")
         shutil.copy(CONFIG_EXAMPLE_PATH, CONFIG_PATH)
         with open(CONFIG_PATH) as f:
             return yaml.safe_load(f) or {}
 
 
 def _save_config(config: dict):
-    """更新 config.yaml 中的值，保留注释和结构。
-
-    逐行替换已知 key 的值，不破坏文件格式。
-    对于嵌套 key（如 notion.token），在父 key 下找到子 key 行并替换。
-    """
     lines = CONFIG_PATH.read_text().splitlines()
     new_lines = _apply_config(lines, config)
     CONFIG_PATH.write_text("\n".join(new_lines) + "\n")
 
 
 def _apply_config(lines: list[str], config: dict) -> list[str]:
-    """逐行更新配置值。"""
-    # 构建 flat key → value 映射
     flat: dict[str, str] = {}
     for section, values in config.items():
         if isinstance(values, dict):
@@ -67,13 +62,11 @@ def _apply_config(lines: list[str], config: dict) -> list[str]:
     current_section = ""
     for line in lines:
         stripped = line.lstrip()
-        # 检测顶层 section（无缩进，以 key: 结尾）
         if stripped and not stripped.startswith("#") and ":" in stripped and not line.startswith(" "):
             sec_name = stripped.split(":")[0].strip()
             if sec_name in config and isinstance(config.get(sec_name), dict):
                 current_section = sec_name
 
-        # 检测子 key（有缩进）
         if current_section and stripped and not stripped.startswith("#") and ":" in stripped and line.startswith(" "):
             key_name = stripped.split(":")[0].strip()
             flat_key = f"{current_section}.{key_name}"
@@ -81,7 +74,6 @@ def _apply_config(lines: list[str], config: dict) -> list[str]:
                 val = flat[flat_key]
                 indent = line[: len(line) - len(line.lstrip())]
                 comment = ""
-                # 保留行尾注释
                 parts = line.split("#", 1)
                 if len(parts) > 1 and not line.strip().startswith("#"):
                     comment = f"  # {parts[1].strip()}"
@@ -93,7 +85,6 @@ def _apply_config(lines: list[str], config: dict) -> list[str]:
 
 
 def _yaml_val(val) -> str:
-    """将 Python 值转为 YAML 字面量。"""
     if isinstance(val, bool):
         return "true" if val else "false"
     if isinstance(val, (int, float)):
@@ -101,15 +92,11 @@ def _yaml_val(val) -> str:
     if isinstance(val, str):
         if not val:
             return '""'
-        # 含特殊字符时用引号
-        if any(c in val for c in ":#{}[]|>&*!%@`"):
-            return f'"{val}"'
         return f'"{val}"'
     return str(val)
 
 
 def _setup_notion(config: dict) -> bool:
-    """配置 Notion（v1 任务流）。"""
     print("\n── Notion 配置（v1 异步任务流）──")
     print("  Notion 任务流: 在 Notion 写需求 → Brain 自动调度 CC 执行 → 结果写回 Notion")
     print()
@@ -129,7 +116,6 @@ def _setup_notion(config: dict) -> bool:
 
     config.setdefault("notion", {})["token"] = token
 
-    # 数据库 ID
     current_project_db = config.get("notion", {}).get("project_db_id", "")
     current_task_db = config.get("notion", {}).get("task_db_id", "")
 
@@ -159,7 +145,6 @@ def _setup_notion(config: dict) -> bool:
 
 
 def _setup_feishu(config: dict) -> bool:
-    """配置飞书（v2 对话流）。"""
     print("\n── 飞书配置（v2 实时对话流）──")
     print("  飞书对话流: 在飞书发消息 → Brain 接收 → CC 执行 → 结果回飞书")
     print()
@@ -205,43 +190,32 @@ def _setup_feishu(config: dict) -> bool:
     return True
 
 
-def _setup_general(config: dict):
-    """配置通用项。"""
-    print("\n── 通用配置 ──")
-
-    workspace_base = config.get("workspace", {}).get("base_dir", "~/brain-workspaces")
-    new_base = _ask("Workspace 根目录", default=workspace_base)
-    config.setdefault("workspace", {})["base_dir"] = new_base
-
-
 def main():
     print()
     print("  ╔══════════════════════════════════╗")
-    print("  ║   Claude Brain 配置向导           ║")
+    print("  ║     CCBrain 配置向导              ║")
     print("  ╚══════════════════════════════════╝")
 
+    _ensure_data_dir()
     config = _load_config()
 
-    _setup_general(config)
     notion_enabled = _setup_notion(config)
     feishu_enabled = _setup_feishu(config)
 
-    # 保存
     _save_config(config)
 
-    # 摘要
     print()
     print("  ── 配置摘要 ──")
+    print(f"  数据目录:       {DATA_DIR}")
     print(f"  Notion 任务流:  {'已启用' if notion_enabled else '未启用'}")
     print(f"  飞书对话流:     {'已启用' if feishu_enabled else '未启用'}")
-    print(f"  配置文件:       {CONFIG_PATH}")
     print()
 
     if not notion_enabled and not feishu_enabled:
         print("  ⚠ 未启用任何事件源，Brain 启动后将空转等待。")
-        print("  重新运行 ./brain.sh init 进行配置。")
+        print("  重新运行 ccbrain init 进行配置。")
     else:
-        print("  运行 ./brain.sh start 启动服务")
+        print("  运行 ccbrain start 启动服务")
         if notion_enabled and not config.get("notion", {}).get("project_db_id"):
             print("  提示: Notion 数据库未配置，在 Claude Code 中运行 /brain-init 自动创建")
 
