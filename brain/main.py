@@ -328,6 +328,33 @@ async def _handle_chat(incoming, adapter, conn):
 
 
 # ---------------------------------------------------------------------------
+# 启动时更新 workspace 模板
+# ---------------------------------------------------------------------------
+
+def _reinit_all_workspaces():
+    """启动时将所有已有 workspace 的模板更新为最新版本。"""
+    import shutil
+    from brain.config import RESOURCE_DIR
+    from brain.session.manager import _inject_channel_id
+
+    template_dir = RESOURCE_DIR / "template"
+    if not template_dir.exists() or not WORKSPACE_BASE.exists():
+        return
+
+    workspaces = [d for d in WORKSPACE_BASE.iterdir() if d.is_dir()]
+    if not workspaces:
+        return
+
+    for ws in workspaces:
+        for src in template_dir.iterdir():
+            if src.is_file():
+                shutil.copy2(src, ws / src.name)
+        _inject_channel_id(ws, ws.name)
+
+    log.info("已更新 %d 个 workspace 模板", len(workspaces))
+
+
+# ---------------------------------------------------------------------------
 # 主循环
 # ---------------------------------------------------------------------------
 
@@ -348,6 +375,7 @@ async def main():
     log.info("Workspace 根目录: %s", WORKSPACE_BASE)
 
     WORKSPACE_BASE.mkdir(parents=True, exist_ok=True)
+    _reinit_all_workspaces()
     conn = get_db()
 
     tasks: list[asyncio.Task] = []
