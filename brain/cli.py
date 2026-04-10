@@ -45,6 +45,8 @@ def _is_loaded() -> bool:
 
 def _generate_plist() -> str:
     uv = _uv()
+    # 继承当前 shell 的 PATH，确保 launchd 环境能找到 node/npx/lark-cli 等
+    shell_path = os.environ.get("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
     return f"""\
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -52,6 +54,11 @@ def _generate_plist() -> str:
 <dict>
     <key>Label</key>
     <string>{LABEL}</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>{shell_path}</string>
+    </dict>
     <key>ProgramArguments</key>
     <array>
         <string>{uv}</string>
