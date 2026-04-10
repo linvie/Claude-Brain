@@ -389,7 +389,11 @@ async def _handle_chat(incoming, adapter, conn):
         lark_context = (
             f"\n\n## 飞书通知\n"
             f"当前对话 chat_id: {channel_id}\n"
-            f"主动发消息: lark-cli im send --receive-id \"{channel_id}\" "
+            "你的回复会自动通过卡片流式展示给用户（每 2 秒更新），无需手动发送常规进度。\n"
+            "**仅在以下情况使用 lark-cli 发独立消息**（会产生新消息气泡）：\n"
+            "- 遇到阻碍，需要用户回复才能继续\n"
+            "- 需要用户确认危险操作\n"
+            f"命令: lark-cli im send --receive-id \"{channel_id}\" "
             f"--receive-id-type chat_id --msg-type text "
             f"--content '{{\"text\":\"你的消息\"}}'\n"
         )
