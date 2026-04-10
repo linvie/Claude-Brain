@@ -79,14 +79,53 @@ Brain 写入的任务描述，只读：
 {"status": "TASK_PROGRESS", "stage": "阶段描述", "summary": "当前进展"}
 ```
 
-### test_instructions（TASK_DONE 时推荐）
+### test_instructions（TASK_DONE 时必填）
 
-在 `TASK_DONE` 的 outbox 中，推荐填写 `test_instructions` 字段，告诉用户如何验证本次改动：
+在 `TASK_DONE` 的 outbox 中，必须填写 `test_instructions` 字段：
+- 测试命令及运行结果（如 `pytest: 12 passed, 0 failed`）
 - 启动命令（如 `npm run dev`、`python manage.py runserver`）
 - 需要访问的 URL 或操作步骤
 - 预期行为
 
 Brain 会将 test_instructions 回写到 Notion，方便用户查看。
+
+## 质量规则（必须遵守）
+
+1. **编码前**：检查项目是否有测试框架（pytest/jest/vitest/go test 等）。如果有，先运行现有测试确认基线通过
+2. **编码中**：每完成一个独立功能点，运行相关测试确认无回归
+3. **编码后**：运行完整测试套件，确认全部通过
+4. **TASK_DONE 前**：
+   - `test_instructions` 必须填写（不能为空）
+   - 如果项目有测试框架：必须报告测试运行结果（通过数/失败数）
+   - 如果没有测试框架：必须说明如何手动验证
+   - `summary` 中不得包含占位符（TBD/TODO/待定/FIXME）
+5. **测试失败处理**：测试不通过则修复后重新测试，直到通过才标记 TASK_DONE。如果确认是已有 bug（非本次引入），在 summary 中说明
+
+## 执行策略
+
+根据任务类型选择合适的策略：
+
+- **新功能**：先写测试（期望失败），再实现功能（测试通过），最后清理
+- **Bug 修复**：先写复现测试锁定当前行为，修复后确认只有预期测试变化
+- **重构**：先确认现有测试全部通过，重构后再次确认，不改变外部行为
+- **基础设施/配置**：创建文件后验证构建通过（lint/build）
+
+## 提交规范
+
+1. 使用 TodoWrite 将任务分解为具体步骤
+2. 每完成一个步骤，立即 git commit：
+   - 格式：`type(scope): description`
+   - type: feat / fix / refactor / docs / test / chore
+3. 所有步骤完成后运行完整测试套件
+4. 最后写 outbox.json（TASK_DONE + 测试结果）
+
+## 上下文恢复
+
+如果你发现对话历史不完整（可能经历了 context compaction），请：
+1. 重新阅读 inbox.json 获取任务上下文
+2. 检查 `git log --oneline` 查看已完成的工作
+3. 检查当前 outbox.json 状态
+4. 继续未完成的工作，不要重做已完成的部分
 
 ## 约束
 

@@ -31,7 +31,7 @@ Brain daemon 通过轮询 `outbox.json` 获取你的执行状态。**格式为 J
 | reason | string | TASK_BLOCKED 时必填 | 阻塞原因 |
 | stage | string | TASK_PROGRESS 时必填 | 当前阶段描述 |
 | artifacts | string[] | 否 | 产出物路径或链接 |
-| test_instructions | string | 否（TASK_DONE 时推荐） | 告诉用户如何验证改动（启动命令、URL、操作步骤等） |
+| test_instructions | string | TASK_DONE 时必填 | 告诉用户如何验证改动（测试命令及结果、启动命令、URL、操作步骤等） |
 
 ## 示例
 

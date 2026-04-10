@@ -127,6 +127,20 @@ Brain 注入的配置信息，只读：
 - 有依赖关系的任务必须设置 `blocked_by`
 - 先写用户可感知的 milestone，再细化每个 milestone 内的 task
 
+### 测试策略
+
+在 `docs/tech_plan.md` 中为项目和每个任务标注测试策略：
+- 标注项目的测试框架（如果存在，如 pytest / jest / vitest / go test）
+- 对每个任务说明验证方式：单元测试 / 集成测试 / 构建验证 / 手动验证
+- 如果项目没有测试框架，建议 Executor 至少做构建验证
+
+### 任务描述要求
+
+每个 Task 的 `description` 应包含：
+- **做什么**：功能描述
+- **验收标准**：怎样算完成
+- **验证方式**：如何测试（运行什么命令、检查什么结果）
+
 ## 创建 Notion Task
 
 使用 `mcp__notion__API-post-page` 创建 Task，格式：

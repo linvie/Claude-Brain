@@ -76,6 +76,20 @@ def validate(path: Path) -> list[str]:
         elif not all(isinstance(a, str) for a in artifacts):
             errors.append("'artifacts' 数组中的每个元素必须是字符串")
 
+    # 8. TASK_DONE 时 test_instructions 必填
+    if status == "TASK_DONE":
+        ti = data.get("test_instructions")
+        if not ti or not isinstance(ti, str) or not ti.strip():
+            errors.append("status=TASK_DONE 时必须提供非空的 'test_instructions'（说明如何验证改动）")
+
+    # 9. summary 不得包含占位符
+    if summary and isinstance(summary, str):
+        placeholders = ["TBD", "TODO", "待定", "FIXME", "XXX"]
+        for ph in placeholders:
+            if ph in summary:
+                errors.append(f"'summary' 包含占位符 '{ph}'，请替换为具体内容")
+                break
+
     return errors
 
 
