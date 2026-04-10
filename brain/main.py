@@ -253,7 +253,7 @@ async def _handle_command(incoming, adapter, conn):
         else:
             # alias 直接传给 SDK，自动解析到最新版本
             model = arg.strip() if arg.strip().lower() != "default" else None
-            set_model(incoming.channel_id, model)
+            await set_model(incoming.channel_id, model)
             await adapter.send(OutgoingMessage(
                 channel_id=incoming.channel_id,
                 text=f"模型已切换: **{arg.strip() or 'default'}**",

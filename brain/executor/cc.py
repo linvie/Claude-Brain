@@ -250,27 +250,22 @@ def get_session_info(channel_id: str) -> dict:
     }
 
 
-def set_model(channel_id: str, model: str | None) -> str:
-    """切换 channel 的 CC 模型。返回实际设置的值。"""
+async def set_model(channel_id: str, model: str | None) -> str:
+    """切换 channel 的 CC 模型。
+
+    如果 CC 已连接，运行时切换 + 断开重连（确保新 model 生效）。
+    如果未连接，下次连接时自动使用新 model。
+    """
     session = _sessions.get(channel_id)
     if session:
         session.model = model
-        # 如果已连接，尝试运行时切换
         if session._connected and session.client:
-            asyncio.create_task(_set_model_async(session.client, model))
-    else:
-        # session 还没创建，先存到临时位置，execute 时会用
-        _pending_models[channel_id] = model
+            # 运行时切换
+            try:
+                await session.client.set_model(model)
+                log_cc.info("CC 模型运行时切换: %s", model or "default")
+            except Exception:
+                # 运行时切换失败，断开连接让下次重连时用新 model
+                log_cc.info("CC 运行时切换失败，断开连接: %s", model)
+                await session._disconnect()
     return model or "default"
-
-
-_pending_models: dict[str, str | None] = {}
-
-
-async def _set_model_async(client: ClaudeSDKClient, model: str | None):
-    """异步切换已连接 client 的模型。"""
-    try:
-        await client.set_model(model)
-        log_cc.info("CC 模型已切换: %s", model or "default")
-    except Exception:
-        log_cc.warning("CC 模型切换失败: %s", model)
