@@ -1,6 +1,6 @@
 [project]
 name = "ccbrain"
-version = "0.4.4"
+version = "0.4.5"
 description = "Personal AI daemon — Feishu chat + Notion tasks, powered by Claude Code"
 requires-python = ">=3.12"
 readme = "README.md"
@@ -32,10 +32,6 @@ asyncio_mode = "auto"
 [tool.coverage.run]
 source = ["brain"]
 omit = [
-    "brain/cli.py",              # CLI 入口，依赖 sys/os 交互
-    "brain/main.py",             # asyncio 主循环，依赖外部服务
-    "brain/setup.py",            # 交互式安装向导
-    "brain/infra/feishu_notify.py",  # 纯网络 I/O 通知
     "brain/__init__.py",
 ]
 

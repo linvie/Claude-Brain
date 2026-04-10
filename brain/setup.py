@@ -9,14 +9,14 @@ import yaml
 from brain.config import CONFIG_EXAMPLE_PATH, CONFIG_PATH, DATA_DIR
 
 
-def _ask(prompt: str, default: str = "") -> str:
+def _ask(prompt: str, default: str = "") -> str:  # pragma: no cover
     if default:
         raw = input(f"  {prompt} [{default}]: ").strip()
         return raw or default
     return input(f"  {prompt}: ").strip()
 
 
-def _confirm(prompt: str, default: bool = False) -> bool:
+def _confirm(prompt: str, default: bool = False) -> bool:  # pragma: no cover
     hint = "Y/n" if default else "y/N"
     raw = input(f"  {prompt} [{hint}]: ").strip().lower()
     if not raw:
@@ -24,7 +24,7 @@ def _confirm(prompt: str, default: bool = False) -> bool:
     return raw in ("y", "yes")
 
 
-def _ensure_data_dir():
+def _ensure_data_dir():  # pragma: no cover
     """确保 ~/.ccbrain/ 目录存在。"""
     if DATA_DIR.exists():
         return
@@ -32,7 +32,7 @@ def _ensure_data_dir():
     print(f"  创建数据目录: {DATA_DIR}")
 
 
-def _load_config() -> dict:
+def _load_config() -> dict:  # pragma: no cover
     if CONFIG_PATH.exists():
         print(f"  检测到已有配置: {CONFIG_PATH}")
         with open(CONFIG_PATH) as f:
@@ -44,7 +44,7 @@ def _load_config() -> dict:
             return yaml.safe_load(f) or {}
 
 
-def _save_config(config: dict):
+def _save_config(config: dict):  # pragma: no cover
     lines = CONFIG_PATH.read_text().splitlines()
     new_lines = _apply_config(lines, config)
     CONFIG_PATH.write_text("\n".join(new_lines) + "\n")
@@ -99,7 +99,7 @@ def _yaml_val(val) -> str:
     return str(val)
 
 
-def _setup_notion(config: dict) -> bool:
+def _setup_notion(config: dict) -> bool:  # pragma: no cover
     print("\n── Notion 配置（v1 异步任务流）──")
     print("  Notion 任务流: 在 Notion 写需求 → Brain 自动调度 CC 执行 → 结果写回 Notion")
     print()
@@ -150,7 +150,7 @@ def _setup_notion(config: dict) -> bool:
     return True
 
 
-def _setup_notion_mcp(token: str):
+def _setup_notion_mcp(token: str):  # pragma: no cover
     """配置全局 Notion MCP server，使 CC 能在飞书对话中操作 Notion。"""
     import subprocess
 
@@ -212,7 +212,7 @@ def _write_notion_mcp_config(token: str, headers_json: str):
     claude_json_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
-def _setup_feishu(config: dict) -> bool:
+def _setup_feishu(config: dict) -> bool:  # pragma: no cover
     print("\n── 飞书配置（v2 实时对话流）──")
     print("  飞书对话流: 在飞书发消息 → Brain 接收 → CC 执行 → 结果回飞书")
     print()
@@ -258,7 +258,7 @@ def _setup_feishu(config: dict) -> bool:
     return True
 
 
-def _setup_lark_cli() -> bool:
+def _setup_lark_cli() -> bool:  # pragma: no cover
     """配置飞书 CLI（lark-cli），为 CC 提供飞书工具能力。"""
     print("\n── 飞书 CLI 配置（CC 工具扩展）──")
     print("  安装后 CC 可直接操作飞书：发消息、查日历、管理文档、查任务等")
@@ -341,7 +341,7 @@ def _setup_lark_cli() -> bool:
     return True
 
 
-def main():
+def main():  # pragma: no cover
     print()
     print("  ╔══════════════════════════════════╗")
     print("  ║     CCBrain 配置向导              ║")

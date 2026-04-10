@@ -31,15 +31,15 @@ PLIST_PATH = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 DOMAIN = f"gui/{os.getuid()}"
 
 
-def _uv() -> str:
+def _uv() -> str:  # pragma: no cover
     return which("uv") or str(Path.home() / ".local" / "bin" / "uv")
 
 
-def _run(cmd: str, check: bool = True) -> subprocess.CompletedProcess:
+def _run(cmd: str, check: bool = True) -> subprocess.CompletedProcess:  # pragma: no cover
     return subprocess.run(cmd, shell=True, capture_output=True, text=True, check=check)
 
 
-def _is_loaded() -> bool:
+def _is_loaded() -> bool:  # pragma: no cover
     return _run(f"launchctl print {DOMAIN}/{LABEL}", check=False).returncode == 0
 
 
@@ -85,12 +85,12 @@ def _generate_plist() -> str:
 # 子命令
 # ---------------------------------------------------------------------------
 
-def cmd_init():
+def cmd_init():  # pragma: no cover
     from brain.setup import main as setup_main
     setup_main()
 
 
-def cmd_run():
+def cmd_run():  # pragma: no cover
     if not DATA_DIR.exists():
         print(f"数据目录不存在: {DATA_DIR}")
         print("请先运行 ccbrain init")
@@ -99,7 +99,7 @@ def cmd_run():
     asyncio.run(main())
 
 
-def cmd_install():
+def cmd_install():  # pragma: no cover
     if not DATA_DIR.exists():
         print("请先运行 ccbrain init")
         sys.exit(1)
@@ -120,7 +120,7 @@ def cmd_install():
     print(f"  数据:  {DATA_DIR}/")
 
 
-def cmd_uninstall():
+def cmd_uninstall():  # pragma: no cover
     if not _is_loaded():
         print("服务未安装")
         if PLIST_PATH.exists():
@@ -132,12 +132,12 @@ def cmd_uninstall():
     print("✓ 服务已卸载")
 
 
-def _has_running_pid() -> bool:
+def _has_running_pid() -> bool:  # pragma: no cover
     r = _run(f"launchctl print {DOMAIN}/{LABEL}", check=False)
     return "pid =" in r.stdout and r.returncode == 0
 
 
-def cmd_start():
+def cmd_start():  # pragma: no cover
     if not PLIST_PATH.exists():
         print("服务未安装，请先运行 ccbrain install")
         sys.exit(1)
@@ -149,7 +149,7 @@ def cmd_start():
     print("✓ 服务已启动")
 
 
-def cmd_stop():
+def cmd_stop():  # pragma: no cover
     if not _is_loaded():
         print("服务未在运行")
         return
@@ -159,13 +159,13 @@ def cmd_stop():
     print("✓ 服务已停止")
 
 
-def cmd_restart():
+def cmd_restart():  # pragma: no cover
     cmd_stop()
     time.sleep(1)
     cmd_start()
 
 
-def cmd_status():
+def cmd_status():  # pragma: no cover
     if not _is_loaded():
         print("服务未安装")
         return
@@ -180,7 +180,7 @@ def cmd_status():
         print("● stopped")
 
 
-def cmd_logs(name: str = "brain"):
+def cmd_logs(name: str = "brain"):  # pragma: no cover
     log_file = LOG_DIR / f"{name}.log"
     if not log_file.exists():
         print(f"日志文件不存在: {log_file}")
@@ -189,7 +189,7 @@ def cmd_logs(name: str = "brain"):
     os.execvp("tail", ["tail", "-f", str(log_file)])
 
 
-def usage():
+def usage():  # pragma: no cover
     print(f"""\
 CCBrain — Claude Code Brain Daemon
 
@@ -210,7 +210,7 @@ CCBrain — Claude Code Brain Daemon
 数据目录: {DATA_DIR}""")
 
 
-def cmd_config(args: list[str]):
+def cmd_config(args: list[str]):  # pragma: no cover
     """配置管理：查看、修改配置项，安装扩展工具。"""
     sub = args[0] if args else ""
 
@@ -307,7 +307,7 @@ def _version() -> str:
     return "dev"
 
 
-def main():
+def main():  # pragma: no cover
     args = sys.argv[1:]
     cmd = args[0] if args else ""
 

@@ -35,14 +35,14 @@ _shutdown_event: asyncio.Event | None = None
 # 信号处理 & task 异常兜底
 # ---------------------------------------------------------------------------
 
-def _handle_signal(sig: signal.Signals):
+def _handle_signal(sig: signal.Signals):  # pragma: no cover
     name = signal.Signals(sig).name
     log.info("收到 %s 信号，准备关闭", name)
     if _shutdown_event:
         _shutdown_event.set()
 
 
-def _on_task_exception(task: asyncio.Task):
+def _on_task_exception(task: asyncio.Task):  # pragma: no cover
     if task.cancelled():
         return
     exc = task.exception()
@@ -54,7 +54,7 @@ def _on_task_exception(task: asyncio.Task):
 # v1: Notion 轮询
 # ---------------------------------------------------------------------------
 
-async def _notion_poll_loop(conn, shutdown: asyncio.Event):
+async def _notion_poll_loop(conn, shutdown: asyncio.Event):  # pragma: no cover
     cycle = 0
     last_task_done_time = 0.0
 
@@ -125,7 +125,7 @@ def get_notify_chat_id() -> str:
     return FEISHU_NOTIFY_CHAT_ID or _last_active_chat_id
 
 
-async def _dispatch_message(incoming, adapter, conn):
+async def _dispatch_message(incoming, adapter, conn):  # pragma: no cover
     """消息分流：命令立即处理，对话排队。"""
     global _last_active_chat_id
     _last_active_chat_id = incoming.channel_id
@@ -144,7 +144,7 @@ async def _dispatch_message(incoming, adapter, conn):
         await _enqueue_chat(incoming, adapter, conn)
 
 
-async def _enqueue_chat(incoming, adapter, conn):
+async def _enqueue_chat(incoming, adapter, conn):  # pragma: no cover
     """将对话消息放入 per-channel 队列。"""
     cid = incoming.channel_id
     if cid not in _channel_queues:
@@ -158,7 +158,7 @@ async def _enqueue_chat(incoming, adapter, conn):
     await _channel_queues[cid].put(incoming)
 
 
-async def _channel_worker(channel_id: str, adapter, conn):
+async def _channel_worker(channel_id: str, adapter, conn):  # pragma: no cover
     """Per-channel worker：线性消费队列中的对话消息。"""
     queue = _channel_queues[channel_id]
     while True:
@@ -175,7 +175,7 @@ async def _channel_worker(channel_id: str, adapter, conn):
 # 命令处理
 # ---------------------------------------------------------------------------
 
-async def _handle_command(incoming, adapter, conn):
+async def _handle_command(incoming, adapter, conn):  # pragma: no cover
     """解析并处理 /xxx 命令。"""
     from brain.channels.base import OutgoingMessage
 
@@ -316,7 +316,7 @@ async def _handle_command(incoming, adapter, conn):
     # 不会走到这里，因为只有 _KNOWN_COMMANDS 才进入 _handle_command
 
 
-async def _run_background_task(incoming, adapter, conn, task_desc: str):
+async def _run_background_task(incoming, adapter, conn, task_desc: str):  # pragma: no cover
     """后台执行 CC 任务，完成后回复。最多 3 个并发，超出排队等待。"""
     from brain.channels.base import OutgoingMessage
     from brain.executor.cc import execute
@@ -354,7 +354,7 @@ async def _run_background_task(incoming, adapter, conn, task_desc: str):
 # 普通对话处理
 # ---------------------------------------------------------------------------
 
-async def _handle_chat(incoming, adapter, conn):
+async def _handle_chat(incoming, adapter, conn):  # pragma: no cover
     """处理普通对话消息：占位卡片 → 流式更新 → 最终结果。"""
     from brain.channels.base import OutgoingMessage
     from brain.executor.cc import execute
@@ -454,7 +454,7 @@ async def _handle_chat(incoming, adapter, conn):
 # 启动时更新 workspace 模板
 # ---------------------------------------------------------------------------
 
-def _reinit_all_workspaces():
+def _reinit_all_workspaces():  # pragma: no cover
     """启动时更新所有 workspace 的模板区域（保留用户自定义内容）。"""
     from brain.session.manager import update_workspace_template
 
@@ -475,7 +475,7 @@ def _reinit_all_workspaces():
 # 主循环
 # ---------------------------------------------------------------------------
 
-async def main():
+async def main():  # pragma: no cover
     global _shutdown_event
     _shutdown_event = asyncio.Event()
 

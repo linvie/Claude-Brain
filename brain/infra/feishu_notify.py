@@ -36,7 +36,7 @@ def notify_feishu(title: str, content: str, chat_id: str = "") -> bool:
         log.debug("[notify] 无可用 chat_id，跳过飞书通知")
         return False
 
-    try:
+    try:  # pragma: no cover
         token = _get_tenant_token()
         if not token:
             return False
@@ -73,7 +73,7 @@ def notify_feishu(title: str, content: str, chat_id: str = "") -> bool:
         return False
 
 
-def _get_tenant_token() -> str | None:
+def _get_tenant_token() -> str | None:  # pragma: no cover
     """获取 tenant_access_token。"""
     try:
         resp = requests.post(
