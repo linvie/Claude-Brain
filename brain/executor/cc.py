@@ -100,11 +100,16 @@ class _LiveSession:
                 await self._disconnect()
                 return
 
-    async def query(self, prompt: str, resume: str | None = None) -> tuple[str | None, str]:
-        """发送消息并收集结果。
+    async def query(
+        self,
+        prompt: str,
+        resume: str | None = None,
+        on_stream: asyncio.coroutines = None,
+    ) -> tuple[str | None, str]:
+        """发送消息并收集结果，支持流式回调。
 
-        如果 client 已连接，直接发送（热响应）。
-        如果未连接，先 connect（可能用 resume 恢复）。
+        Args:
+            on_stream: async callable(text: str)，CC 每产出一段文本时调用
         """
         self.last_activity = time.time()
 
@@ -112,19 +117,33 @@ class _LiveSession:
             await self._ensure_connected(resume=resume)
         except Exception:
             log_cc.exception("CC 连接失败: channel=%s", self.channel_id)
-            # fallback 到一次性 query
-            return await self._fallback_query(prompt, resume)
+            return await self._fallback_query(prompt, resume, on_stream)
 
         log_cc.info("CC query: channel=%s, connected=%s, prompt=%s",
                     self.channel_id, self._connected, prompt[:80])
 
         session_id = None
         result_text = ""
+        streaming_text = ""
+        last_stream_time = 0.0
 
         try:
             await self.client.query(prompt)
             async for message in self.client.receive_response():
-                if isinstance(message, ResultMessage):
+                if isinstance(message, AssistantMessage):
+                    for block in message.content:
+                        if isinstance(block, TextBlock) and block.text:
+                            streaming_text += block.text
+                            # 节流：每 2 秒推送一次
+                            now = time.time()
+                            if on_stream and now - last_stream_time > 2:
+                                last_stream_time = now
+                                try:
+                                    await on_stream(streaming_text)
+                                except Exception:
+                                    pass  # 流式更新失败不影响执行
+
+                elif isinstance(message, ResultMessage):
                     session_id = message.session_id
                     result_text = message.result or ""
                     cost = getattr(message, "total_cost_usd", 0) or 0
@@ -134,7 +153,6 @@ class _LiveSession:
                     )
         except Exception:
             log_cc.exception("CC query 异常: channel=%s", self.channel_id)
-            # 连接可能断了，标记为未连接
             self._connected = False
             raise
 
@@ -142,8 +160,13 @@ class _LiveSession:
         self.last_activity = time.time()
         return session_id, result_text
 
-    async def _fallback_query(self, prompt: str, resume: str | None) -> tuple[str | None, str]:
-        """连接失败时的 fallback：一次性 query（和之前行为一致）。"""
+    async def _fallback_query(
+        self,
+        prompt: str,
+        resume: str | None,
+        on_stream=None,
+    ) -> tuple[str | None, str]:
+        """连接失败时的 fallback：一次性 query。"""
         from claude_agent_sdk import query as sdk_query
 
         log_cc.info("CC fallback query: channel=%s", self.channel_id)
@@ -151,9 +174,23 @@ class _LiveSession:
 
         session_id = None
         result_text = ""
+        streaming_text = ""
+        last_stream_time = 0.0
 
         async for message in sdk_query(prompt=prompt, options=options):
-            if isinstance(message, ResultMessage):
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock) and block.text:
+                        streaming_text += block.text
+                        now = time.time()
+                        if on_stream and now - last_stream_time > 2:
+                            last_stream_time = now
+                            try:
+                                await on_stream(streaming_text)
+                            except Exception:
+                                pass
+
+            elif isinstance(message, ResultMessage):
                 session_id = message.session_id
                 result_text = message.result or ""
 
@@ -169,8 +206,13 @@ async def execute(
     channel_id: str,
     system_append: str = "",
     resume: str | None = None,
+    on_stream=None,
 ) -> tuple[str | None, str]:
-    """执行 CC 任务，复用或创建 channel 的持久会话。"""
+    """执行 CC 任务，复用或创建 channel 的持久会话。
+
+    Args:
+        on_stream: async callable(text: str)，CC 输出过程中定期调用（约每 2 秒）
+    """
     cwd = Path(cwd)
 
     session = _sessions.get(channel_id)
@@ -180,4 +222,4 @@ async def execute(
     else:
         session._system_append = system_append
 
-    return await session.query(prompt, resume=resume)
+    return await session.query(prompt, resume=resume, on_stream=on_stream)

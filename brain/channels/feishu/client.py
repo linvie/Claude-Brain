@@ -9,6 +9,8 @@ from lark_oapi.api.im.v1 import (
     CreateMessageRequest,
     CreateMessageRequestBody,
     DeleteMessageReactionRequest,
+    PatchMessageRequest,
+    PatchMessageRequestBody,
     ReplyMessageRequest,
     ReplyMessageRequestBody,
     UpdateMessageRequest,
@@ -144,6 +146,22 @@ class FeishuClient:
         if not response.success():
             log.error("飞书编辑消息失败: code=%s, msg=%s", response.code, response.msg)
             raise RuntimeError(f"feishu edit failed: {response.code} {response.msg}")
+
+    def patch_card(self, message_id: str, text: str) -> None:
+        """更新已发的 interactive card 内容（用于流式输出）。"""
+        request = (
+            PatchMessageRequest.builder()
+            .message_id(message_id)
+            .request_body(
+                PatchMessageRequestBody.builder()
+                .content(self._build_card(text))
+                .build()
+            )
+            .build()
+        )
+        response = self._client.im.v1.message.patch(request)
+        if not response.success():
+            log.debug("patch card 失败: code=%s, msg=%s", response.code, response.msg)
 
     def add_reaction(self, message_id: str, emoji_type: str = "OnIt") -> str | None:
         """给消息添加 emoji reaction，返回 reaction_id（失败返回 None，不抛异常）。"""

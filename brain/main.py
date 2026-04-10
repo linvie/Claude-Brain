@@ -269,7 +269,7 @@ async def _run_background_task(incoming, adapter, conn, task_desc: str):
 # ---------------------------------------------------------------------------
 
 async def _handle_chat(incoming, adapter, conn):
-    """处理普通对话消息：reaction → CC 执行 → 回复 → 移除 reaction。"""
+    """处理普通对话消息：占位卡片 → 流式更新 → 最终结果。"""
     from brain.channels.base import OutgoingMessage
     from brain.executor.cc import execute
     from brain.memory.extractor import extract_and_store
@@ -277,11 +277,18 @@ async def _handle_chat(incoming, adapter, conn):
     from brain.session.manager import get_active_session, get_workspace, save_session, touch_session
 
     channel_id = incoming.channel_id
-    reaction_id = None
+    card_msg_id = None
 
     try:
-        reaction_id = await adapter.add_reaction(incoming.message_id)
+        # 1. 发送占位卡片（后续流式更新此卡片）
+        placeholder = OutgoingMessage(
+            channel_id=channel_id,
+            text="思考中...",
+            reply_to=incoming.message_id,
+        )
+        card_msg_id = await adapter.send(placeholder)
 
+        # 2. 准备 session + 记忆
         workspace = get_workspace(channel_id)
 
         session_id = get_active_session(conn, channel_id)
@@ -291,40 +298,46 @@ async def _handle_chat(incoming, adapter, conn):
 
         memory_context = build_memory_context(conn, incoming.text)
 
+        # 3. 流式回调：更新占位卡片内容
+        async def _on_stream(text: str):
+            if card_msg_id:
+                await adapter.patch_card(card_msg_id, text + "\n\n_生成中..._")
+
+        # 4. 执行 CC（流式）
         new_session_id, result_text = await execute(
             prompt=incoming.text,
             cwd=workspace,
             channel_id=channel_id,
             system_append=memory_context,
             resume=session_id,
+            on_stream=_on_stream,
         )
 
         if new_session_id:
             save_session(conn, channel_id, new_session_id)
 
-        reply_text = result_text if result_text else "（CC 未返回结果）"
-        await adapter.send(OutgoingMessage(
-            channel_id=channel_id,
-            text=reply_text,
-            reply_to=incoming.message_id,
-        ))
+        # 5. 最终更新卡片为完整结果
+        final_text = result_text if result_text else "（CC 未返回结果）"
+        if card_msg_id:
+            await adapter.patch_card(card_msg_id, final_text)
 
+        # 6. 提取记忆
         if result_text:
             extract_and_store(conn, result_text, source=f"channel:{channel_id}")
 
     except Exception:
         log_feishu.exception("处理消息异常: channel=%s", channel_id)
         try:
-            await adapter.send(OutgoingMessage(
-                channel_id=channel_id,
-                text="处理消息时发生错误，请稍后重试。",
-                reply_to=incoming.message_id,
-            ))
+            if card_msg_id:
+                await adapter.patch_card(card_msg_id, "处理消息时发生错误，请稍后重试。")
+            else:
+                await adapter.send(OutgoingMessage(
+                    channel_id=channel_id,
+                    text="处理消息时发生错误，请稍后重试。",
+                    reply_to=incoming.message_id,
+                ))
         except Exception:
             pass
-    finally:
-        if reaction_id:
-            await adapter.remove_reaction(incoming.message_id, reaction_id)
 
 
 # ---------------------------------------------------------------------------
