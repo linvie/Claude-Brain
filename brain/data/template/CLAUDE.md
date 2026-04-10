@@ -1,3 +1,4 @@
+<!-- CCBRAIN_TEMPLATE_START -->
 # CCBrain Assistant
 
 你是通过飞书与用户对话的 AI 助理，由 CCBrain 调度，Claude Code 驱动。
@@ -40,3 +41,6 @@ CHAT_ID 在 inbox 环境变量或 CLAUDE.md 中查找。
 - 邮件（lark-mail）
 
 使用方式：调用对应的 lark-cli 命令（如 `lark-cli im send`）。
+<!-- CCBRAIN_TEMPLATE_END -->
+
+<!-- 以下内容由 CC 或用户维护，不会被模板更新覆盖 -->

@@ -71,15 +71,56 @@ def _init_workspace(workspace: Path, channel_id: str):
             )
 
 
+_TEMPLATE_START = "<!-- CCBRAIN_TEMPLATE_START -->"
+_TEMPLATE_END = "<!-- CCBRAIN_TEMPLATE_END -->"
+
+
+def update_workspace_template(workspace: Path, channel_id: str):
+    """更新 workspace 的 CLAUDE.md 模板区域，保留用户/CC 自定义内容。
+
+    CLAUDE.md 用标记分区：
+    - <!-- CCBRAIN_TEMPLATE_START --> ... <!-- CCBRAIN_TEMPLATE_END --> 之间是模板
+    - 标记之后的内容由 CC 或用户维护，不会被覆盖
+    """
+    claude_md = workspace / "CLAUDE.md"
+    template_file = _TEMPLATE_DIR / "CLAUDE.md"
+
+    if not template_file.exists():
+        return
+
+    new_template = template_file.read_text()
+
+    if claude_md.exists():
+        existing = claude_md.read_text()
+        if _TEMPLATE_START in existing and _TEMPLATE_END in existing:
+            # 替换标记之间的内容，保留标记之后的用户内容
+            before_start = existing.split(_TEMPLATE_START)[0]
+            after_end = existing.split(_TEMPLATE_END)[1]
+            # 从新模板提取标记区域
+            new_section = new_template[
+                new_template.index(_TEMPLATE_START):new_template.index(_TEMPLATE_END) + len(_TEMPLATE_END)
+            ]
+            result = before_start + new_section + after_end
+        else:
+            # 旧格式（无标记），全部替换为新模板
+            result = new_template
+    else:
+        result = new_template
+
+    # 注入 channel_id
+    result = result.replace("CHAT_ID", channel_id)
+    claude_md.write_text(result)
+    log.debug("更新模板: %s", workspace.name)
+
+
 def _inject_channel_id(workspace: Path, channel_id: str):
-    """在 CLAUDE.md 末尾追加 channel_id，供 CC 发送消息时使用。"""
+    """在 CLAUDE.md 中替换 CHAT_ID 占位符。"""
     claude_md = workspace / "CLAUDE.md"
     if not claude_md.exists():
         return
     content = claude_md.read_text()
-    if "CHAT_ID" not in content and channel_id not in content:
-        return  # 模板里没有 CHAT_ID 占位符，不注入
-    # 替换占位符
+    if "CHAT_ID" not in content:
+        return
     content = content.replace("CHAT_ID", channel_id)
     claude_md.write_text(content)
     log.debug("注入 channel_id: %s → CLAUDE.md", channel_id)

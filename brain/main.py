@@ -332,13 +332,10 @@ async def _handle_chat(incoming, adapter, conn):
 # ---------------------------------------------------------------------------
 
 def _reinit_all_workspaces():
-    """启动时将所有已有 workspace 的模板更新为最新版本。"""
-    import shutil
-    from brain.config import RESOURCE_DIR
-    from brain.session.manager import _inject_channel_id
+    """启动时更新所有 workspace 的模板区域（保留用户自定义内容）。"""
+    from brain.session.manager import update_workspace_template
 
-    template_dir = RESOURCE_DIR / "template"
-    if not template_dir.exists() or not WORKSPACE_BASE.exists():
+    if not WORKSPACE_BASE.exists():
         return
 
     workspaces = [d for d in WORKSPACE_BASE.iterdir() if d.is_dir()]
@@ -346,10 +343,7 @@ def _reinit_all_workspaces():
         return
 
     for ws in workspaces:
-        for src in template_dir.iterdir():
-            if src.is_file():
-                shutil.copy2(src, ws / src.name)
-        _inject_channel_id(ws, ws.name)
+        update_workspace_template(ws, ws.name)
 
     log.info("已更新 %d 个 workspace 模板", len(workspaces))
 

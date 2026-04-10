@@ -247,8 +247,8 @@ def cmd_config(args: list[str]):
         _save_config(config)
 
     elif sub == "reinit-workspace":
-        from brain.config import WORKSPACE_BASE, RESOURCE_DIR
-        import shutil
+        from brain.config import WORKSPACE_BASE
+        from brain.session.manager import update_workspace_template
 
         if not WORKSPACE_BASE.exists():
             print("无 workspace 目录")
@@ -259,16 +259,6 @@ def cmd_config(args: list[str]):
             print("无 workspace")
             return
 
-        template_dir = RESOURCE_DIR / "template"
-        if not template_dir.exists():
-            print(f"模板目录不存在: {template_dir}")
-            return
-
-        print(f"  找到 {len(workspaces)} 个 workspace：")
-        for ws in workspaces:
-            print(f"    {ws.name}")
-        print()
-
         target = args[1] if len(args) > 1 else ""
         if target:
             workspaces = [ws for ws in workspaces if ws.name == target]
@@ -277,14 +267,8 @@ def cmd_config(args: list[str]):
                 return
 
         for ws in workspaces:
-            for src in template_dir.iterdir():
-                if src.is_file():
-                    dest = ws / src.name
-                    shutil.copy2(src, dest)
-            # 注入 channel_id
-            from brain.session.manager import _inject_channel_id
-            _inject_channel_id(ws, ws.name)
-            print(f"  ✓ {ws.name} 模板已更新")
+            update_workspace_template(ws, ws.name)
+            print(f"  ✓ {ws.name} 模板已更新（用户内容已保留）")
 
     else:
         print("""\
