@@ -16,6 +16,8 @@ from brain.config import (
     MAX_CONCURRENT,
     MAX_TASK_DURATION,
     NOTION_ENABLED,
+    NOTION_PROJECT_DB_ID,
+    NOTION_TASK_DB_ID,
     WORKSPACE_BASE,
 )
 from brain.core.dispatcher import dispatch
@@ -371,6 +373,24 @@ async def _handle_chat(incoming, adapter, conn):
 
         memory_context = build_memory_context(conn, incoming.text)
 
+        # 2.5 构建 system_append（记忆 + 飞书 chat_id + Notion context）
+        lark_context = (
+            f"\n\n## 飞书通知\n"
+            f"当前对话 chat_id: {channel_id}\n"
+            f"主动发消息: lark-cli im send --receive-id \"{channel_id}\" "
+            f"--receive-id-type chat_id --msg-type text "
+            f"--content '{{\"text\":\"你的消息\"}}'\n"
+        )
+        notion_context = ""
+        if NOTION_ENABLED and NOTION_TASK_DB_ID:
+            notion_context = (
+                f"\n\n## Notion 集成\n"
+                f"- Task 数据库 ID: {NOTION_TASK_DB_ID}\n"
+                f"- Project 数据库 ID: {NOTION_PROJECT_DB_ID}\n"
+                "你可以用 mcp__notion__* 工具操作 Notion。详见 notion_config.json。\n"
+            )
+        system_append = memory_context + lark_context + notion_context
+
         # 3. 流式回调：更新占位卡片内容
         async def _on_stream(text: str):
             if card_msg_id:
@@ -382,7 +402,7 @@ async def _handle_chat(incoming, adapter, conn):
             prompt=incoming.text,
             cwd=workspace,
             channel_id=channel_id,
-            system_append=memory_context,
+            system_append=system_append,
             resume=session_id,
             on_stream=_on_stream,
         )

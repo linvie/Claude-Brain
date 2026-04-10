@@ -7,7 +7,14 @@ import sqlite3
 import time
 from pathlib import Path
 
-from brain.config import RESOURCE_DIR, SESSION_IDLE_TIMEOUT, WORKSPACE_BASE
+from brain.config import (
+    NOTION_ENABLED,
+    NOTION_PROJECT_DB_ID,
+    NOTION_TASK_DB_ID,
+    RESOURCE_DIR,
+    SESSION_IDLE_TIMEOUT,
+    WORKSPACE_BASE,
+)
 from brain.infra.logger import log_session as log
 
 # v2 workspace 模板（brain/data/template/）
@@ -59,6 +66,18 @@ def _init_workspace(workspace: Path, channel_id: str):
                     shutil.copytree(src, dest)
         # 注入 channel_id 到 CLAUDE.md
         _inject_channel_id(workspace, channel_id)
+
+        # 注入 Notion 配置（如果启用）
+        if NOTION_ENABLED and NOTION_TASK_DB_ID:
+            import json
+            config_data = {
+                "task_db_id": NOTION_TASK_DB_ID,
+                "project_db_id": NOTION_PROJECT_DB_ID,
+            }
+            (workspace / "notion_config.json").write_text(
+                json.dumps(config_data, indent=2)
+            )
+            log.debug("注入 notion_config.json: %s", workspace.name)
     else:
         # 无模板时创建基础 CLAUDE.md
         claude_md = workspace / "CLAUDE.md"

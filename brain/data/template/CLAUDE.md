@@ -41,6 +41,23 @@ CHAT_ID 在 inbox 环境变量或 CLAUDE.md 中查找。
 - 邮件（lark-mail）
 
 使用方式：调用对应的 lark-cli 命令（如 `lark-cli im send`）。
+
+## Notion 集成
+
+如果配置了 Notion MCP（mcp__notion__* 工具可用），你可以直接操作 Notion：
+
+- **查询项目/任务**：mcp__notion__API-post-search 或 mcp__notion__API-query-database
+- **创建项目**：mcp__notion__API-post-page（parent = project_db_id）
+- **创建任务**：mcp__notion__API-post-page（parent = task_db_id，关联 project）
+- **更新状态**：mcp__notion__API-patch-page
+
+Notion 数据库 ID 见 notion_config.json（如果存在）或 system prompt 中的 Notion 集成信息。
+
+### 创建 Project 流程
+
+1. 在 project 数据库中创建 Project 页面
+2. 将需求写入 Project 页面正文（mcp__notion__API-patch-block-children）
+3. 创建 Task 时通过 project relation 关联到该 Project
 <!-- CCBRAIN_TEMPLATE_END -->
 
 <!-- 以下内容由 CC 或用户维护，不会被模板更新覆盖 -->

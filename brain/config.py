@@ -57,6 +57,12 @@ FEISHU_ENABLED = _feishu_cfg.get("enabled", False)
 FEISHU_APP_ID = _feishu_cfg.get("app_id", "")
 FEISHU_APP_SECRET = _feishu_cfg.get("app_secret", "")
 FEISHU_ALLOWED_USERS = _feishu_cfg.get("allowed_users", [])  # 空列表 = 不限制
+FEISHU_NOTIFY_CHAT_ID = _feishu_cfg.get("notify_chat_id", "")  # v1 任务通知 chat_id
+
+# Notion DB ID（供 v2 飞书对话注入）
+_notion_cfg = CONFIG.get("notion", {})
+NOTION_TASK_DB_ID = _notion_cfg.get("task_db_id", "")
+NOTION_PROJECT_DB_ID = _notion_cfg.get("project_db_id", "")
 
 # v2: Session 配置
 _session_cfg = CONFIG.get("session", {})

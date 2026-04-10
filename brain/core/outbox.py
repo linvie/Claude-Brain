@@ -109,6 +109,10 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
             )
             conn.commit()
 
+        # 飞书通知
+        task_name = row["task_name"] if row else task_id
+        _notify_feishu("TASK_DONE", task_name, summary)
+
     elif status == "TASK_BLOCKED":
         _kill_cc_process(conn, task_id)
         reason = data["reason"]
@@ -121,10 +125,27 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
         conn.commit()
         log_scheduler.warning("阻塞: task=%s, reason=%s", task_id, reason)
 
+        # 飞书通知
+        row = conn.execute(
+            "SELECT task_name FROM task_runs WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        task_name = row["task_name"] if row else task_id
+        _notify_feishu("TASK_BLOCKED", task_name, reason)
+
     elif status == "TASK_PROGRESS":
         stage = data["stage"]
         append_log(task_id, log_entry)
         log_scheduler.info("进度: task=%s, stage=%s, summary=%s", task_id, stage, summary[:100])
+
+
+def _notify_feishu(status: str, task_name: str, summary: str):  # pragma: no cover
+    """发送飞书通知（非阻塞，失败静默）。"""
+    from brain.infra.feishu_notify import notify_feishu
+
+    emoji = "✅" if status == "TASK_DONE" else "🚫"
+    title = f"{emoji} {status}"
+    content = f"任务: {task_name}\n\n{summary[:500]}"
+    notify_feishu(title, content)
 
 
 def _kill_cc_process(conn: sqlite3.Connection, task_id: str):

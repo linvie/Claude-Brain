@@ -142,7 +142,42 @@ def _setup_notion(config: dict) -> bool:
     if not project_db or not task_db:
         print("  提示: 稍后在 Claude Code 中运行 /brain-init 可自动创建数据库")
 
+    # 配置全局 Notion MCP（飞书对话中使用）
+    _setup_notion_mcp(token)
+
     return True
+
+
+def _setup_notion_mcp(token: str):
+    """配置全局 Notion MCP server，使 CC 能在飞书对话中操作 Notion。"""
+    import subprocess
+
+    # 检查是否已配置
+    result = subprocess.run(
+        ["claude", "mcp", "list"],
+        capture_output=True, text=True, timeout=10,
+    )
+    if "notion" in result.stdout.lower() and "notion-mcp-server" in result.stdout:
+        print("  ✓ Notion MCP 已配置")
+        return
+
+    print("  配置 Notion MCP（飞书对话中可操作 Notion）...")
+    try:
+        subprocess.run(
+            [
+                "claude", "mcp", "add",
+                "--scope", "user",
+                "--transport", "stdio",
+                "--env", f"OPENAPI_MCP_HEADERS={{\"Authorization\": \"Bearer {token}\", \"Notion-Version\": \"2022-06-28\"}}",
+                "notion",
+                "--",
+                "npx", "-y", "@notionhq/notion-mcp-server",
+            ],
+            check=True, capture_output=True, text=True, timeout=30,
+        )
+        print("  ✓ Notion MCP 配置完成")
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        print(f"  ⚠ Notion MCP 配置失败（可手动运行 claude mcp add）: {e}")
 
 
 def _setup_feishu(config: dict) -> bool:

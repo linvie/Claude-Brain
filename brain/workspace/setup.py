@@ -5,7 +5,7 @@ import logging
 import shutil
 from pathlib import Path
 
-from brain.config import CONFIG, SRC_DIR
+from brain.config import CONFIG, FEISHU_ENABLED, FEISHU_NOTIFY_CHAT_ID, SRC_DIR
 
 log_cc = logging.getLogger("brain.cc")
 
@@ -28,6 +28,10 @@ def setup_workspace(workspace: Path, task_type: str, inbox_data: dict, task: dic
 
     if task_type == "planner":
         _inject_brain_config(workspace, task)
+
+    # 注入飞书通知 chat_id（所有角色都可以主动通知用户）
+    if FEISHU_ENABLED and FEISHU_NOTIFY_CHAT_ID:
+        _inject_feishu_notify(workspace)
 
     log_cc.info("workspace 准备完成: type=%s, workspace=%s", task_type, workspace)
 
@@ -134,3 +138,24 @@ def _inject_brain_config(workspace: Path, task: dict):
         encoding="utf-8",
     )
     log_cc.debug("注入 brain_config.json: %s", brain_config)
+
+
+def _inject_feishu_notify(workspace: Path):
+    """注入飞书通知 chat_id 到 CLAUDE.md 末尾，使 CC 能主动发消息。"""
+    claude_md = workspace / "CLAUDE.md"
+    if not claude_md.exists():
+        return
+    content = claude_md.read_text(encoding="utf-8")
+    if "lark-cli im send" in content:
+        return  # 已有通知指引
+    notify_block = (
+        "\n\n## 飞书通知\n\n"
+        "如果遇到阻碍、需要用户确认、或有阶段性成果，使用 lark-cli 发送消息：\n"
+        "```bash\n"
+        f'lark-cli im send --receive-id "{FEISHU_NOTIFY_CHAT_ID}" '
+        '--receive-id-type chat_id --msg-type text '
+        '--content \'{"text":"你的消息"}\'\n'
+        "```\n"
+    )
+    claude_md.write_text(content + notify_block, encoding="utf-8")
+    log_cc.debug("注入飞书通知指引: chat_id=%s", FEISHU_NOTIFY_CHAT_ID)
