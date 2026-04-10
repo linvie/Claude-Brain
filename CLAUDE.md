@@ -106,13 +106,18 @@ Brain 与 CC 通过 workspace 中的 JSON 文件通信：
 ## v2: 消息流
 
 ```
-飞书消息 → FeishuAdapter → main._handle_channel_message()
-  → 发送"思考中..."占位
-  → 检索/创建 session
-  → 组装记忆 context
-  → executor.cc.execute()（Claude Agent SDK）
-  → 编辑占位消息为结果
-  → 提取记忆存入 DB
+飞书消息 → FeishuAdapter → _dispatch_message()
+  ├─ /help /reset /status  → 即时响应（不进队列）
+  ├─ /btw <task>           → 即时回复 + 后台 CC（不阻塞队列）
+  └─ 普通消息               → per-channel 队列 → _handle_chat()
+       → add emoji reaction（思考指示器）
+       → 获取 per-channel workspace
+       → 查找/创建 session（自动 resume）
+       → 组装记忆 context
+       → executor.cc.execute()（Claude Agent SDK）
+       → 回复 markdown 卡片
+       → remove reaction
+       → 提取记忆存入 DB
 ```
 
 ## v2: 记忆系统
@@ -136,3 +141,39 @@ Brain-owned 记忆系统，独立于 CC 的 per-project 记忆。
 - v1 和 v2 模块互不依赖，只在 main.py 汇合
 - Channel adapter 是纯 I/O 层，不含业务逻辑
 - CC 不知道 Brain 的存在（workspace + system prompt + 消息）
+
+## 质量规则（本项目开发时遵守）
+
+### 编码流程
+
+1. **编码前**：了解现有代码结构，确认改动范围。如果项目有测试，先跑一次确认基线通过
+2. **编码中**：每完成一个独立功能点，运行相关测试确认无回归
+3. **编码后**：运行完整测试（如有），确认全部通过
+4. **提交前**：检查 git diff，确认没有遗漏文件或调试代码
+
+### 执行策略
+
+- **新功能**：先写测试（期望失败），再实现（测试通过），最后清理
+- **Bug 修复**：先确认复现路径，修复后验证只有预期变化
+- **重构**：先确认现有测试通过，重构后再次确认
+
+### 提交规范
+
+- 格式：`type(scope): description`（Conventional Commits）
+- 每个独立改动一个 commit，不混合不相关变更
+- 改动涉及新功能/API 变更时，同步更新相关文档（README、CLAUDE.md）
+
+### 验证要求
+
+- 代码改动后必须验证能正常运行（至少 import 成功、基本功能可用）
+- CLI 命令改动后逐个测试所有子命令
+- 新增配置项要同步更新 `config.example.yaml`
+- 版本号更新要同步 `uv sync` 更新 `uv.lock`
+
+### 上下文恢复
+
+如果对话历史不完整（context compaction），请：
+1. 阅读本文件了解项目架构
+2. `git log --oneline -20` 查看近期改动
+3. 查看 `docs/dev-status.md` 了解当前状态和待办
+4. 继续未完成的工作，不要重做已完成的部分
