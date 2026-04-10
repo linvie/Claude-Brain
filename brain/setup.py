@@ -1,6 +1,8 @@
 """交互式配置向导 — 引导用户完成 CCBrain 初始化配置。"""
 
+import json
 import shutil
+from pathlib import Path
 
 import yaml
 
@@ -162,13 +164,18 @@ def _setup_notion_mcp(token: str):
         return
 
     print("  配置 Notion MCP（飞书对话中可操作 Notion）...")
+    # 先尝试用 OPENAPI_MCP_HEADERS（官方推荐），失败则用直接写入 JSON 的方式
+    headers_json = json.dumps({
+        "Authorization": f"Bearer {token}",
+        "Notion-Version": "2022-06-28",
+    })
     try:
         subprocess.run(
             [
                 "claude", "mcp", "add",
                 "--scope", "user",
                 "--transport", "stdio",
-                "--env", f"OPENAPI_MCP_HEADERS={{\"Authorization\": \"Bearer {token}\", \"Notion-Version\": \"2022-06-28\"}}",
+                "--env", f"OPENAPI_MCP_HEADERS={headers_json}",
                 "notion",
                 "--",
                 "npx", "-y", "@notionhq/notion-mcp-server",
@@ -176,8 +183,33 @@ def _setup_notion_mcp(token: str):
             check=True, capture_output=True, text=True, timeout=30,
         )
         print("  ✓ Notion MCP 配置完成")
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"  ⚠ Notion MCP 配置失败（可手动运行 claude mcp add）: {e}")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # claude mcp add 失败时，直接写入 ~/.claude.json
+        try:
+            _write_notion_mcp_config(token, headers_json)
+            print("  ✓ Notion MCP 配置完成（直接写入 ~/.claude.json）")
+        except Exception as e:
+            print(f"  ⚠ Notion MCP 配置失败: {e}")
+            print("  手动运行: claude mcp add --scope user notion -- npx -y @notionhq/notion-mcp-server")
+
+
+def _write_notion_mcp_config(token: str, headers_json: str):
+    """直接写入 ~/.claude.json 配置 Notion MCP（claude mcp add 的 fallback）。"""
+    claude_json_path = Path.home() / ".claude.json"
+    if claude_json_path.exists():
+        data = json.loads(claude_json_path.read_text())
+    else:
+        data = {}
+
+    data.setdefault("mcpServers", {})
+    data["mcpServers"]["notion"] = {
+        "command": "npx",
+        "args": ["-y", "@notionhq/notion-mcp-server"],
+        "env": {
+            "OPENAPI_MCP_HEADERS": headers_json,
+        },
+    }
+    claude_json_path.write_text(json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def _setup_feishu(config: dict) -> bool:
