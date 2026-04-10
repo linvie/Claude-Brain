@@ -238,23 +238,25 @@ async def _handle_command(incoming, adapter, conn):
             await adapter.send(OutgoingMessage(
                 channel_id=incoming.channel_id,
                 text=(
-                    f"当前模型: **{current}**\n\n"
-                    "切换: `/model sonnet` `/model opus` `/model haiku` `/model default`"
+                    f"**当前模型:** {current}\n\n"
+                    "**可用模型（alias 自动指向最新版本）：**\n"
+                    "- `opus` — Opus 4.6（最强）\n"
+                    "- `sonnet` — Sonnet 4.6（平衡）\n"
+                    "- `haiku` — Haiku（快速）\n"
+                    "- `opus[1m]` — Opus 4.6 + 1M context\n"
+                    "- `sonnet[1m]` — Sonnet 4.6 + 1M context\n"
+                    "- `default` — 恢复账户默认\n\n"
+                    "切换: `/model opus`"
                 ),
                 reply_to=incoming.message_id,
             ))
         else:
-            model_map = {
-                "sonnet": "claude-sonnet-4-5-20250514",
-                "opus": "claude-opus-4-0-20250115",
-                "haiku": "claude-haiku-3-5-20241022",
-                "default": None,
-            }
-            model = model_map.get(arg.lower(), arg)
-            actual = set_model(incoming.channel_id, model)
+            # alias 直接传给 SDK，自动解析到最新版本
+            model = arg.strip() if arg.strip().lower() != "default" else None
+            set_model(incoming.channel_id, model)
             await adapter.send(OutgoingMessage(
                 channel_id=incoming.channel_id,
-                text=f"模型已切换: **{arg}**",
+                text=f"模型已切换: **{arg.strip() or 'default'}**",
                 reply_to=incoming.message_id,
             ))
 
