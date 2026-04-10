@@ -115,9 +115,21 @@ _BTW_SEMAPHORE = asyncio.Semaphore(3)
 _channel_queues: dict[str, asyncio.Queue] = {}
 _channel_workers: dict[str, asyncio.Task] = {}
 
+# 最近活跃的飞书 channel_id（供 v1 任务通知使用）
+_last_active_chat_id: str = ""
+
+
+def get_notify_chat_id() -> str:
+    """获取飞书通知 chat_id：优先用配置值，否则用最近活跃的 channel。"""
+    from brain.config import FEISHU_NOTIFY_CHAT_ID
+    return FEISHU_NOTIFY_CHAT_ID or _last_active_chat_id
+
 
 async def _dispatch_message(incoming, adapter, conn):
     """消息分流：命令立即处理，对话排队。"""
+    global _last_active_chat_id
+    _last_active_chat_id = incoming.channel_id
+
     text = incoming.text.strip()
     cmd = text.split(None, 1)[0].lower() if text else ""
 

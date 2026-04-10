@@ -64,7 +64,7 @@ feishu:
   app_id: ""               # 飞书应用 App ID
   app_secret: ""           # 飞书应用 App Secret
   allowed_users: []        # 授权用户 open_id 列表（空 = 不限制）
-  notify_chat_id: ""       # v1 任务通知发送的 chat_id（群或个人，可从飞书群设置获取）
+  notify_chat_id: ""       # v1 任务通知 chat_id（可选，留空则自动使用最近活跃的飞书对话）
 
 # ── Session 管理 ──
 session:

@@ -7,17 +7,33 @@ import json
 
 import requests
 
-from brain.config import FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENABLED, FEISHU_NOTIFY_CHAT_ID
+from brain.config import FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENABLED
 from brain.infra.logger import log
 
 
-def notify_feishu(title: str, content: str) -> bool:
+def notify_feishu(title: str, content: str, chat_id: str = "") -> bool:
     """发送飞书通知卡片（非阻塞，失败静默）。
+
+    Args:
+        chat_id: 指定发送目标。为空时自动获取（配置值或最近活跃 channel）。
 
     Returns:
         True 如果发送成功，False 如果跳过或失败。
     """
-    if not (FEISHU_ENABLED and FEISHU_NOTIFY_CHAT_ID and FEISHU_APP_ID):
+    if not (FEISHU_ENABLED and FEISHU_APP_ID):
+        return False
+
+    # 动态获取 chat_id：优先参数传入 → 配置值 → 最近活跃 channel
+    if not chat_id:
+        try:
+            from brain.main import get_notify_chat_id
+            chat_id = get_notify_chat_id()
+        except ImportError:
+            from brain.config import FEISHU_NOTIFY_CHAT_ID
+            chat_id = FEISHU_NOTIFY_CHAT_ID
+
+    if not chat_id:
+        log.debug("[notify] 无可用 chat_id，跳过飞书通知")
         return False
 
     try:
@@ -41,14 +57,14 @@ def notify_feishu(title: str, content: str) -> bool:
                 "Content-Type": "application/json; charset=utf-8",
             },
             json={
-                "receive_id": FEISHU_NOTIFY_CHAT_ID,
+                "receive_id": chat_id,
                 "msg_type": "interactive",
                 "content": json.dumps(card),
             },
             timeout=10,
         )
         if resp.status_code == 200 and resp.json().get("code") == 0:
-            log.info("[notify] 飞书通知已发送: %s", title)
+            log.info("[notify] 飞书通知已发送: %s → %s", title, chat_id[:16])
             return True
         log.warning("[notify] 飞书通知失败: %s", resp.text[:200])
         return False
