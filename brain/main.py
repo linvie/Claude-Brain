@@ -287,6 +287,7 @@ async def _handle_chat(incoming, adapter, conn):
             reply_to=incoming.message_id,
         )
         card_msg_id = await adapter.send(placeholder)
+        log_feishu.info("占位卡片已发送: msg_id=%s", card_msg_id)
 
         # 2. 准备 session + 记忆
         workspace = get_workspace(channel_id)
@@ -301,6 +302,7 @@ async def _handle_chat(incoming, adapter, conn):
         # 3. 流式回调：更新占位卡片内容
         async def _on_stream(text: str):
             if card_msg_id:
+                log_feishu.info("流式更新: msg_id=%s, len=%d", card_msg_id, len(text))
                 await adapter.patch_card(card_msg_id, text + "\n\n_生成中..._")
 
         # 4. 执行 CC（流式）

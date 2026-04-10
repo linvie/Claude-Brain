@@ -164,7 +164,8 @@ class FeishuClient:
         )
         response = self._client.im.v1.message.patch(request)
         if not response.success():
-            log.debug("patch card 失败: code=%s, msg=%s", response.code, response.msg)
+            log.warning("patch card 失败: code=%s, msg=%s, log_id=%s",
+                        response.code, response.msg, response.get_log_id())
 
     def add_reaction(self, message_id: str, emoji_type: str = "OnIt") -> str | None:
         """给消息添加 emoji reaction，返回 reaction_id（失败返回 None，不抛异常）。"""
