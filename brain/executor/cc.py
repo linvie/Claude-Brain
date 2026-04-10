@@ -52,13 +52,14 @@ class _LiveSession:
         self.total_queries: int = 0    # 累计查询数
 
     def _build_options(self, resume: str | None = None) -> ClaudeAgentOptions:
-        system_prompt = None
+        # 始终使用 claude_code preset，确保 CC 完整加载
+        # CLAUDE.md、skills、hooks、commands 等 workspace 配置
+        system_prompt: dict = {
+            "type": "preset",
+            "preset": "claude_code",
+        }
         if self._system_append:
-            system_prompt = {
-                "type": "preset",
-                "preset": "claude_code",
-                "append": self._system_append,
-            }
+            system_prompt["append"] = self._system_append
 
         return ClaudeAgentOptions(
             cwd=str(self.cwd),
@@ -66,7 +67,10 @@ class _LiveSession:
             system_prompt=system_prompt,
             resume=resume,
             model=self.model,
-            setting_sources=["project", "user"],
+            # project: workspace/.claude/settings.json
+            # user: ~/.claude/settings.json
+            # local: workspace/.claude/settings.local.json
+            setting_sources=["project", "user", "local"],
         )
 
     async def _ensure_connected(self, resume: str | None = None):
