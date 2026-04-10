@@ -253,13 +253,14 @@ async def _handle_command(incoming, adapter, conn):
                 channel_id=incoming.channel_id,
                 text=(
                     f"**当前模型:** {current}\n\n"
-                    "**可用模型（alias 自动指向最新版本）：**\n"
-                    "- `opus` — Opus 4.6（最强）\n"
-                    "- `sonnet` — Sonnet 4.6（平衡）\n"
-                    "- `haiku` — Haiku（快速）\n"
-                    "- `opus[1m]` — Opus 4.6 + 1M context\n"
-                    "- `sonnet[1m]` — Sonnet 4.6 + 1M context\n"
+                    "**可用 alias（自动指向最新版本）：**\n"
+                    "- `opus` — 最强\n"
+                    "- `sonnet` — 平衡\n"
+                    "- `haiku` — 快速\n"
+                    "- `opus[1m]` — 最强 + 1M context\n"
+                    "- `sonnet[1m]` — 平衡 + 1M context\n"
                     "- `default` — 恢复账户默认\n\n"
+                    "也可直接用完整 model ID，如 `claude-sonnet-4-6`\n\n"
                     "切换: `/model switch opus`"
                 ),
                 reply_to=incoming.message_id,

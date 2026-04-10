@@ -26,6 +26,8 @@ from brain.infra.logger import log_cc
 
 # channel_id → _LiveSession
 _sessions: dict[str, _LiveSession] = {}
+# channel_id → model（session 不存在时暂存）
+_model_overrides: dict[str, str | None] = {}
 
 
 class _LiveSession:
@@ -228,6 +230,9 @@ async def execute(
     session = _sessions.get(channel_id)
     if session is None or str(session.cwd) != str(cwd):
         session = _LiveSession(channel_id, cwd, system_append)
+        # 应用预设的 model override
+        if channel_id in _model_overrides:
+            session.model = _model_overrides[channel_id]
         _sessions[channel_id] = session
     else:
         session._system_append = system_append
@@ -236,14 +241,28 @@ async def execute(
 
 
 def get_session_info(channel_id: str) -> dict:
-    """获取 channel 的 CC 会话信息（供 /status 命令使用）。"""
+    """获取 channel 的 CC 会话信息（供 /status /model /usage 命令使用）。"""
     session = _sessions.get(channel_id)
+    # model 优先从 session 读，其次从 overrides 读
+    model = None
+    if session:
+        model = session.model
+    if not model and channel_id in _model_overrides:
+        model = _model_overrides[channel_id]
+
     if not session:
-        return {"connected": False, "session_id": None}
+        return {
+            "connected": False,
+            "session_id": None,
+            "model": model or "default",
+            "total_cost": 0,
+            "total_queries": 0,
+            "last_activity": 0,
+        }
     return {
         "connected": session._connected,
         "session_id": session.session_id,
-        "model": session.model or "default",
+        "model": model or "default",
         "total_cost": round(session.total_cost, 4),
         "total_queries": session.total_queries,
         "last_activity": session.last_activity,
@@ -251,16 +270,17 @@ def get_session_info(channel_id: str) -> dict:
 
 
 async def set_model(channel_id: str, model: str | None) -> str:
-    """切换 channel 的 CC 模型。
+    """切换 channel 的 CC 模型。"""
+    # 始终存到 overrides（即使 session 还不存在）
+    _model_overrides[channel_id] = model
 
-    断开当前连接，下次消息时用新 model 重连。
-    运行时 set_model 不可靠（被 settings 覆盖），所以强制重连。
-    """
     session = _sessions.get(channel_id)
     if session:
         session.model = model
-        # 强制断开，下次消息重连时 _build_options 会用新 model
         if session._connected:
             await session._disconnect()
-            log_cc.info("CC 模型切换: %s, 已断开连接（下次消息重连生效）", model or "default")
+            log_cc.info("CC 模型切换: %s, 已断开（下条消息重连生效）", model or "default")
+    else:
+        log_cc.info("CC 模型预设: %s（session 尚未创建）", model or "default")
+
     return model or "default"
