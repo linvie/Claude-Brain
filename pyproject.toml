@@ -1,6 +1,6 @@
 [project]
 name = "ccbrain"
-version = "0.3.15"
+version = "0.3.16"
 description = "Personal AI daemon — Feishu chat + Notion tasks, powered by Claude Code"
 requires-python = ">=3.12"
 readme = "README.md"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["ruff>=0.11", "pytest>=8.0", "pytest-asyncio>=0.25"]
+dev = ["ruff>=0.11", "pytest>=8.0", "pytest-asyncio>=0.25", "pytest-cov>=6.0", "diff-cover>=9.0"]
 
 [build-system]
 requires = ["hatchling"]
@@ -28,6 +28,22 @@ ccbrain = "brain.cli:main"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["brain"]
+omit = [
+    "brain/cli.py",        # CLI 入口，依赖 sys/os 交互
+    "brain/main.py",       # asyncio 主循环，依赖外部服务
+    "brain/setup.py",      # 交互式安装向导
+    "brain/__init__.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.",
+    "pass",
+]
 
 [tool.ruff]
 target-version = "py312"

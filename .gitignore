@@ -11,6 +11,12 @@ docs/
 # workspace 目录（各项目独立管理）
 brain-workspaces/
 
+# Coverage 产物
+coverage.xml
+.coverage
+htmlcov/
+.pytest_cache/
+
 # Direction B 实验性配置（本地开发工具，不提交）
 .claude/hooks/
 .claude/skills/review/
