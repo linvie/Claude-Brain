@@ -5,8 +5,8 @@ __pycache__/
 *.pyc
 .venv/
 
-# 技术设计文档（仅本地参考）
-docs/
+# 技术设计文档（仅本地参考，根目录 docs/）
+/docs/
 
 # workspace 目录（各项目独立管理）
 brain-workspaces/
