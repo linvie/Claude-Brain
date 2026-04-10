@@ -231,7 +231,7 @@ async def _handle_command(incoming, adapter, conn):
         ))
 
     elif cmd == "/model":
-        from brain.executor.cc import set_model, get_session_info
+        from brain.executor.cc import get_session_info, set_model
         parts_model = arg.strip().split(None, 1) if arg.strip() else []
         sub = parts_model[0].lower() if parts_model else ""
 

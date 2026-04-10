@@ -1,7 +1,6 @@
 """交互式配置向导 — 引导用户完成 CCBrain 初始化配置。"""
 
 import shutil
-from pathlib import Path
 
 import yaml
 
@@ -37,7 +36,7 @@ def _load_config() -> dict:
         with open(CONFIG_PATH) as f:
             return yaml.safe_load(f) or {}
     else:
-        print(f"  从模板创建配置文件...")
+        print("  从模板创建配置文件...")
         shutil.copy(CONFIG_EXAMPLE_PATH, CONFIG_PATH)
         with open(CONFIG_PATH) as f:
             return yaml.safe_load(f) or {}
@@ -263,7 +262,7 @@ def _setup_lark_cli() -> bool:
             capture_output=True, text=True,
         )
         if r.returncode == 0:
-            print(f"  ✓ 授权成功")
+            print("  ✓ 授权成功")
             print(f"  {r.stdout.strip()[:200]}")
         else:
             print("  ⚠ 授权状态未确认，可稍后运行: lark-cli auth login --recommend")

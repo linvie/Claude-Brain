@@ -7,7 +7,6 @@
 """
 
 import logging
-from pathlib import Path
 
 from brain.config import CONFIG, LOG_DIR
 

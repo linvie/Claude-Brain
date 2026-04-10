@@ -213,7 +213,7 @@ def cmd_config(args: list[str]):
         editor = _os.environ.get("EDITOR", "vim")
         from brain.config import CONFIG_PATH
         if not CONFIG_PATH.exists():
-            print(f"配置文件不存在，请先运行 ccbrain init")
+            print("配置文件不存在，请先运行 ccbrain init")
             sys.exit(1)
         _os.execvp(editor, [editor, str(CONFIG_PATH)])
 
@@ -233,14 +233,14 @@ def cmd_config(args: list[str]):
         _setup_lark_cli()
 
     elif sub == "notion":
-        from brain.setup import _setup_notion, _load_config, _save_config, _ensure_data_dir
+        from brain.setup import _ensure_data_dir, _load_config, _save_config, _setup_notion
         _ensure_data_dir()
         config = _load_config()
         _setup_notion(config)
         _save_config(config)
 
     elif sub == "feishu":
-        from brain.setup import _setup_feishu, _load_config, _save_config, _ensure_data_dir
+        from brain.setup import _ensure_data_dir, _load_config, _save_config, _setup_feishu
         _ensure_data_dir()
         config = _load_config()
         _setup_feishu(config)

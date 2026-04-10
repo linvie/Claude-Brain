@@ -5,7 +5,7 @@ import logging
 import shutil
 from pathlib import Path
 
-from brain.config import SRC_DIR, CONFIG
+from brain.config import CONFIG, SRC_DIR
 
 log_cc = logging.getLogger("brain.cc")
 

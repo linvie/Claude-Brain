@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 import shutil
 import sqlite3
 import time
 from pathlib import Path
 
-from brain.config import DATA_DIR, RESOURCE_DIR, SESSION_IDLE_TIMEOUT, WORKSPACE_BASE
+from brain.config import RESOURCE_DIR, SESSION_IDLE_TIMEOUT, WORKSPACE_BASE
 from brain.infra.logger import log_session as log
 
 # v2 workspace 模板（brain/data/template/）

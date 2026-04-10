@@ -10,3 +10,11 @@ docs/
 
 # workspace 目录（各项目独立管理）
 brain-workspaces/
+
+# Direction B 实验性配置（本地开发工具，不提交）
+.claude/hooks/
+.claude/skills/review/
+.claude/skills/qa/
+.claude/skills/test-import/
+.claude/agents/
+.claude/settings.local.json

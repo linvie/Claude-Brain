@@ -55,8 +55,8 @@ def get_db() -> sqlite3.Connection:
 
 def _init_v2_tables(conn: sqlite3.Connection):
     """初始化 v2 表（session、memory）。"""
-    from brain.session.manager import init_session_tables
     from brain.memory.store import init_memory_tables
+    from brain.session.manager import init_session_tables
     init_session_tables(conn)
     init_memory_tables(conn)
 

@@ -7,7 +7,13 @@ from brain.core.process import launch_cc, launch_script
 from brain.core.protocol import build_inbox
 from brain.infra.db import all_done, project_has_running_task
 from brain.infra.logger import log_scheduler
-from brain.integrations.notion import append_log, get_page_body, get_project_info, get_related_tasks, update_status
+from brain.integrations.notion import (
+    append_log,
+    get_page_body,
+    get_project_info,
+    get_related_tasks,
+    update_status,
+)
 from brain.workspace.manager import prepare_workspace
 from brain.workspace.setup import setup_workspace
 
