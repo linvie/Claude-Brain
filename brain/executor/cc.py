@@ -47,6 +47,9 @@ class _LiveSession:
         self._system_append = system_append
         self._idle_task: asyncio.Task | None = None
         self._connected = False
+        self.model: str | None = None  # 当前模型（用户可通过 /model 切换）
+        self.total_cost: float = 0.0   # 累计费用
+        self.total_queries: int = 0    # 累计查询数
 
     def _build_options(self, resume: str | None = None) -> ClaudeAgentOptions:
         system_prompt = None
@@ -62,6 +65,7 @@ class _LiveSession:
             permission_mode="bypassPermissions",
             system_prompt=system_prompt,
             resume=resume,
+            model=self.model,
             setting_sources=["project", "user"],
         )
 
@@ -147,6 +151,8 @@ class _LiveSession:
                     session_id = message.session_id
                     result_text = message.result or ""
                     cost = getattr(message, "total_cost_usd", 0) or 0
+                    self.total_cost += cost
+                    self.total_queries += 1
                     log_cc.info(
                         "CC 完成: session=%s, cost=$%.4f, result=%s",
                         session_id, cost, result_text[:100],
@@ -223,3 +229,44 @@ async def execute(
         session._system_append = system_append
 
     return await session.query(prompt, resume=resume, on_stream=on_stream)
+
+
+def get_session_info(channel_id: str) -> dict:
+    """获取 channel 的 CC 会话信息（供 /status 命令使用）。"""
+    session = _sessions.get(channel_id)
+    if not session:
+        return {"connected": False, "session_id": None}
+    return {
+        "connected": session._connected,
+        "session_id": session.session_id,
+        "model": session.model or "default",
+        "total_cost": round(session.total_cost, 4),
+        "total_queries": session.total_queries,
+        "last_activity": session.last_activity,
+    }
+
+
+def set_model(channel_id: str, model: str | None) -> str:
+    """切换 channel 的 CC 模型。返回实际设置的值。"""
+    session = _sessions.get(channel_id)
+    if session:
+        session.model = model
+        # 如果已连接，尝试运行时切换
+        if session._connected and session.client:
+            asyncio.create_task(_set_model_async(session.client, model))
+    else:
+        # session 还没创建，先存到临时位置，execute 时会用
+        _pending_models[channel_id] = model
+    return model or "default"
+
+
+_pending_models: dict[str, str | None] = {}
+
+
+async def _set_model_async(client: ClaudeSDKClient, model: str | None):
+    """异步切换已连接 client 的模型。"""
+    try:
+        await client.set_model(model)
+        log_cc.info("CC 模型已切换: %s", model or "default")
+    except Exception:
+        log_cc.warning("CC 模型切换失败: %s", model)

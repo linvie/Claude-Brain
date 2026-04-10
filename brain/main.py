@@ -103,7 +103,7 @@ async def _notion_poll_loop(conn, shutdown: asyncio.Event):
 # ---------------------------------------------------------------------------
 
 # Brain 直接处理的命令（不需要 CC，立即响应）
-_INSTANT_COMMANDS = {"/reset", "/status", "/help"}
+_INSTANT_COMMANDS = {"/reset", "/status", "/help", "/model", "/usage"}
 # 需要 CC 但不阻塞队列的命令
 _BACKGROUND_COMMANDS = {"/btw"}
 # /btw 并发限制
@@ -203,12 +203,73 @@ async def _handle_command(incoming, adapter, conn):
         ))
 
     elif cmd == "/status":
-        from brain.session.manager import get_active_session
-        session_id = get_active_session(conn, incoming.channel_id)
-        status = f"Session: {session_id or '无'}"
+        from brain.executor.cc import get_session_info
+        info = get_session_info(incoming.channel_id)
+        if info["connected"]:
+            import datetime
+            last = datetime.datetime.fromtimestamp(info["last_activity"]).strftime("%H:%M:%S")
+            status = (
+                f"**Session 状态**\n\n"
+                f"- Session: `{info['session_id'] or '无'}`\n"
+                f"- CC 连接: 已连接\n"
+                f"- 模型: {info['model']}\n"
+                f"- 本次累计: {info['total_queries']} 次查询, ${info['total_cost']}\n"
+                f"- 最近活动: {last}"
+            )
+        else:
+            from brain.session.manager import get_active_session
+            session_id = get_active_session(conn, incoming.channel_id)
+            status = (
+                f"**Session 状态**\n\n"
+                f"- Session: `{session_id or '无'}`\n"
+                f"- CC 连接: 未连接（下次消息时自动连接）"
+            )
         await adapter.send(OutgoingMessage(
             channel_id=incoming.channel_id,
             text=status,
+            reply_to=incoming.message_id,
+        ))
+
+    elif cmd == "/model":
+        from brain.executor.cc import set_model, get_session_info
+        if not arg:
+            info = get_session_info(incoming.channel_id)
+            current = info.get("model", "default")
+            await adapter.send(OutgoingMessage(
+                channel_id=incoming.channel_id,
+                text=(
+                    f"当前模型: **{current}**\n\n"
+                    "切换: `/model sonnet` `/model opus` `/model haiku` `/model default`"
+                ),
+                reply_to=incoming.message_id,
+            ))
+        else:
+            model_map = {
+                "sonnet": "claude-sonnet-4-5-20250514",
+                "opus": "claude-opus-4-0-20250115",
+                "haiku": "claude-haiku-3-5-20241022",
+                "default": None,
+            }
+            model = model_map.get(arg.lower(), arg)
+            actual = set_model(incoming.channel_id, model)
+            await adapter.send(OutgoingMessage(
+                channel_id=incoming.channel_id,
+                text=f"模型已切换: **{arg}**",
+                reply_to=incoming.message_id,
+            ))
+
+    elif cmd == "/usage":
+        from brain.executor.cc import get_session_info
+        info = get_session_info(incoming.channel_id)
+        usage_text = (
+            f"**用量统计**\n\n"
+            f"- 查询次数: {info.get('total_queries', 0)}\n"
+            f"- 累计费用: ${info.get('total_cost', 0)}\n"
+            f"- 当前模型: {info.get('model', 'default')}"
+        )
+        await adapter.send(OutgoingMessage(
+            channel_id=incoming.channel_id,
+            text=usage_text,
             reply_to=incoming.message_id,
         ))
 
@@ -216,8 +277,10 @@ async def _handle_command(incoming, adapter, conn):
         help_text = (
             "**可用命令：**\n\n"
             "- `/btw <任务>` — 后台执行任务（不阻塞对话）\n"
+            "- `/model [name]` — 查看/切换模型（sonnet/opus/haiku/default）\n"
+            "- `/usage` — 查看用量统计\n"
+            "- `/status` — 查看 session 详细状态\n"
             "- `/reset` — 重置对话 session\n"
-            "- `/status` — 查看当前 session 状态\n"
             "- `/help` — 显示此帮助\n\n"
             "直接发消息即对话（线性处理，排队执行）。"
         )
