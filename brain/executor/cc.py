@@ -253,19 +253,14 @@ def get_session_info(channel_id: str) -> dict:
 async def set_model(channel_id: str, model: str | None) -> str:
     """切换 channel 的 CC 模型。
 
-    如果 CC 已连接，运行时切换 + 断开重连（确保新 model 生效）。
-    如果未连接，下次连接时自动使用新 model。
+    断开当前连接，下次消息时用新 model 重连。
+    运行时 set_model 不可靠（被 settings 覆盖），所以强制重连。
     """
     session = _sessions.get(channel_id)
     if session:
         session.model = model
-        if session._connected and session.client:
-            # 运行时切换
-            try:
-                await session.client.set_model(model)
-                log_cc.info("CC 模型运行时切换: %s", model or "default")
-            except Exception:
-                # 运行时切换失败，断开连接让下次重连时用新 model
-                log_cc.info("CC 运行时切换失败，断开连接: %s", model)
-                await session._disconnect()
+        # 强制断开，下次消息重连时 _build_options 会用新 model
+        if session._connected:
+            await session._disconnect()
+            log_cc.info("CC 模型切换: %s, 已断开连接（下次消息重连生效）", model or "default")
     return model or "default"

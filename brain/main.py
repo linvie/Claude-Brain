@@ -232,7 +232,21 @@ async def _handle_command(incoming, adapter, conn):
 
     elif cmd == "/model":
         from brain.executor.cc import set_model, get_session_info
-        if not arg:
+        parts_model = arg.strip().split(None, 1) if arg.strip() else []
+        sub = parts_model[0].lower() if parts_model else ""
+
+        if sub == "switch" and len(parts_model) > 1:
+            # /model switch <name>
+            name = parts_model[1].strip()
+            model = name if name.lower() != "default" else None
+            await set_model(incoming.channel_id, model)
+            await adapter.send(OutgoingMessage(
+                channel_id=incoming.channel_id,
+                text=f"模型已切换: **{name}**（下条消息生效）",
+                reply_to=incoming.message_id,
+            ))
+        else:
+            # /model — 显示当前模型和可用列表
             info = get_session_info(incoming.channel_id)
             current = info.get("model", "default")
             await adapter.send(OutgoingMessage(
@@ -246,17 +260,8 @@ async def _handle_command(incoming, adapter, conn):
                     "- `opus[1m]` — Opus 4.6 + 1M context\n"
                     "- `sonnet[1m]` — Sonnet 4.6 + 1M context\n"
                     "- `default` — 恢复账户默认\n\n"
-                    "切换: `/model opus`"
+                    "切换: `/model switch opus`"
                 ),
-                reply_to=incoming.message_id,
-            ))
-        else:
-            # alias 直接传给 SDK，自动解析到最新版本
-            model = arg.strip() if arg.strip().lower() != "default" else None
-            await set_model(incoming.channel_id, model)
-            await adapter.send(OutgoingMessage(
-                channel_id=incoming.channel_id,
-                text=f"模型已切换: **{arg.strip() or 'default'}**",
                 reply_to=incoming.message_id,
             ))
 
@@ -279,7 +284,8 @@ async def _handle_command(incoming, adapter, conn):
         help_text = (
             "**可用命令：**\n\n"
             "- `/btw <任务>` — 后台执行任务（不阻塞对话）\n"
-            "- `/model [name]` — 查看/切换模型（sonnet/opus/haiku/default）\n"
+            "- `/model` — 查看当前模型和可用列表\n"
+            "- `/model switch <name>` — 切换模型（sonnet/opus/haiku/default）\n"
             "- `/usage` — 查看用量统计\n"
             "- `/status` — 查看 session 详细状态\n"
             "- `/reset` — 重置对话 session\n"
