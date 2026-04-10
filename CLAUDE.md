@@ -163,12 +163,29 @@ Brain-owned 记忆系统，独立于 CC 的 per-project 记忆。
 - 每个独立改动一个 commit，不混合不相关变更
 - 改动涉及新功能/API 变更时，同步更新相关文档（README、CLAUDE.md）
 
-### 验证要求
+### 版本号规则（必须遵守）
 
-- 代码改动后必须验证能正常运行（至少 import 成功、基本功能可用）
-- CLI 命令改动后逐个测试所有子命令
-- 新增配置项要同步更新 `config.example.yaml`
-- 版本号更新要同步 `uv sync` 更新 `uv.lock`
+每次功能新增或重要 bug 修复后，**必须**更新版本号：
+1. 修改 `pyproject.toml` 中的 `version`
+2. 运行 `uv sync` 更新 `uv.lock`
+3. 将 pyproject.toml + uv.lock 一起提交
+
+版本格式：`0.major.patch`
+- patch +1：bug 修复、小改动
+- major +1：新功能、行为变更
+
+不更新版本号 = 其他设备无法通过 `uv tool upgrade ccbrain` 拉到最新代码。
+
+### 验证要求（必须执行，不是建议）
+
+每次改动后，**必须**完成以下验证再提交：
+1. `uv run python -c "from brain.xxx import yyy"` — 确认 import 无报错
+2. 功能验证 — 实际运行改动涉及的功能路径
+3. CLI 命令改动 — 逐个测试受影响的子命令
+4. 新增配置项 — 同步更新 `config.example.yaml` 和 `brain/data/config.example.yaml`
+5. 飞书相关改动 — `ccbrain restart` 后在飞书发消息验证
+
+如果跳过验证直接提交，后续在其他设备或 launchd 环境中会出问题（import 错误、运行时崩溃等）。
 
 ### 上下文恢复
 
