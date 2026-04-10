@@ -87,7 +87,10 @@ class FeishuClient:
             for chunk in chunks:
                 elements.append({"tag": "markdown", "content": chunk})
 
-        card = {"elements": elements}
+        card = {
+            "config": {"update_multi": True},
+            "elements": elements,
+        }
         return json.dumps(card)
 
     def send_text(self, chat_id: str, text: str) -> str:
