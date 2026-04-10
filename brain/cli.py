@@ -246,17 +246,58 @@ def cmd_config(args: list[str]):
         _setup_feishu(config)
         _save_config(config)
 
+    elif sub == "reinit-workspace":
+        from brain.config import WORKSPACE_BASE, RESOURCE_DIR
+        import shutil
+
+        if not WORKSPACE_BASE.exists():
+            print("无 workspace 目录")
+            return
+
+        workspaces = [d for d in WORKSPACE_BASE.iterdir() if d.is_dir()]
+        if not workspaces:
+            print("无 workspace")
+            return
+
+        template_dir = RESOURCE_DIR / "template"
+        if not template_dir.exists():
+            print(f"模板目录不存在: {template_dir}")
+            return
+
+        print(f"  找到 {len(workspaces)} 个 workspace：")
+        for ws in workspaces:
+            print(f"    {ws.name}")
+        print()
+
+        target = args[1] if len(args) > 1 else ""
+        if target:
+            workspaces = [ws for ws in workspaces if ws.name == target]
+            if not workspaces:
+                print(f"  未找到 workspace: {target}")
+                return
+
+        for ws in workspaces:
+            for src in template_dir.iterdir():
+                if src.is_file():
+                    dest = ws / src.name
+                    shutil.copy2(src, dest)
+            # 注入 channel_id
+            from brain.session.manager import _inject_channel_id
+            _inject_channel_id(ws, ws.name)
+            print(f"  ✓ {ws.name} 模板已更新")
+
     else:
         print("""\
 用法: ccbrain config <subcommand>
 
 子命令:
-  show        显示当前配置
-  edit        用编辑器打开 config.yaml
-  path        输出配置文件路径
-  feishu      重新配置飞书连接
-  notion      重新配置 Notion 连接
-  lark-cli    安装/配置飞书 CLI 工具""")
+  show                          显示当前配置
+  edit                          用编辑器打开 config.yaml
+  path                          输出配置文件路径
+  feishu                        重新配置飞书连接
+  notion                        重新配置 Notion 连接
+  lark-cli                      安装/配置飞书 CLI 工具
+  reinit-workspace [name]       重新注入 workspace 模板（不指定 name 则全部更新）""")
 
 
 def _version() -> str:

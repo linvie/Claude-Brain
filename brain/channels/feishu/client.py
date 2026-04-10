@@ -18,6 +18,30 @@ from lark_oapi.api.im.v1 import (
 from brain.infra.logger import log_feishu as log
 
 
+def _optimize_markdown(text: str) -> str:
+    """适配飞书 markdown 渲染的限制。"""
+    # 飞书不支持 <details>/<summary> HTML 标签
+    text = text.replace("<details>", "").replace("</details>", "")
+    text = text.replace("<summary>", "**").replace("</summary>", "**\n")
+    return text
+
+
+def _split_markdown(text: str, max_len: int) -> list[str]:
+    """按段落边界分割 markdown，每段不超过 max_len 字符。"""
+    paragraphs = text.split("\n\n")
+    chunks = []
+    current = ""
+    for para in paragraphs:
+        if len(current) + len(para) + 2 > max_len and current:
+            chunks.append(current.strip())
+            current = para
+        else:
+            current = current + "\n\n" + para if current else para
+    if current.strip():
+        chunks.append(current.strip())
+    return chunks or [text[:max_len]]
+
+
 class FeishuClient:
     """飞书 API 客户端，提供消息发送/回复/编辑能力。"""
 
@@ -31,21 +55,37 @@ class FeishuClient:
         )
 
     @staticmethod
-    def _build_card(text: str) -> str:
-        """将 markdown 文本包装为飞书 Interactive Card JSON。"""
-        card = {
-            "type": "template",
-            "data": {
-                "template_variable": {"content": text},
-                "template_id": "",  # 无模板，用内联卡片
-            },
-        }
-        # 飞书 CardKit 2.0 内联格式
-        card = {
-            "elements": [
-                {"tag": "markdown", "content": text}
-            ],
-        }
+    def _build_card(text: str, title: str | None = None) -> str:
+        """将 markdown 文本包装为飞书 Interactive Card JSON。
+
+        飞书 markdown 限制：
+        - 单个 markdown 元素最大 10000 字符
+        - 不支持 HTML 标签
+        - 表格支持有限，过宽会截断
+        """
+        # 飞书 markdown 适配
+        text = _optimize_markdown(text)
+
+        elements = []
+
+        # 标题
+        if title:
+            elements.append({
+                "tag": "markdown",
+                "content": f"**{title}**",
+            })
+            elements.append({"tag": "hr"})
+
+        # 内容（超长时分段，飞书单 markdown 元素限 10000 字符）
+        if len(text) <= 9000:
+            elements.append({"tag": "markdown", "content": text})
+        else:
+            # 按段落分割
+            chunks = _split_markdown(text, 9000)
+            for chunk in chunks:
+                elements.append({"tag": "markdown", "content": chunk})
+
+        card = {"elements": elements}
         return json.dumps(card)
 
     def send_text(self, chat_id: str, text: str) -> str:

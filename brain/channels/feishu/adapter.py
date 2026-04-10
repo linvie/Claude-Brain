@@ -38,7 +38,15 @@ class FeishuAdapter(ChannelAdapter):
             log.info("拒绝未授权用户: user=%s, chat=%s", user_id, msg.chat_id)
             return
 
-        text = json.loads(msg.content).get("text", "")
+        # 群聊中只响应 @bot 的消息
+        content_obj = json.loads(msg.content)
+        if getattr(msg, "chat_type", "") == "group":
+            mentions = getattr(msg, "mentions", None)
+            if not mentions:
+                log.debug("群聊消息未 @bot，忽略: chat=%s", msg.chat_id)
+                return
+
+        text = content_obj.get("text", "")
         if not text.strip():
             return
 
