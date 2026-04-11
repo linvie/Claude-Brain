@@ -12,7 +12,6 @@ from brain.config import (
     NOTION_PROJECT_DB_ID,
     NOTION_TASK_DB_ID,
     RESOURCE_DIR,
-    SESSION_IDLE_TIMEOUT,
     WORKSPACE_BASE,
 )
 from brain.infra.logger import log_session as log
@@ -171,26 +170,20 @@ def _inject_channel_id(workspace: Path, channel_id: str):
 # ---------------------------------------------------------------------------
 
 def get_active_session(conn: sqlite3.Connection, channel_id: str) -> str | None:
+    """获取 channel 的活跃 session_id。
+
+    Session 不会自动过期，只有 /reset 命令才会归档。
+    CC 进程可能因 idle 断开，但 session_id 保留用于 resume。
+    """
     row = conn.execute(
-        """SELECT session_id, last_activity
+        """SELECT session_id
            FROM v2_sessions
            WHERE channel_id = ? AND status = 'active'
            ORDER BY last_activity DESC LIMIT 1""",
         (channel_id,),
     ).fetchone()
 
-    if row is None:
-        return None
-
-    session_id, last_activity = row["session_id"], row["last_activity"]
-    now = int(time.time())
-
-    if now - last_activity > SESSION_IDLE_TIMEOUT:
-        log.info("session idle 超时: channel=%s, session=%s", channel_id, session_id)
-        _archive_session(conn, channel_id, session_id)
-        return None
-
-    return session_id
+    return row["session_id"] if row else None
 
 
 def save_session(conn: sqlite3.Connection, channel_id: str, session_id: str):
