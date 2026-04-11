@@ -173,6 +173,16 @@ Brain-owned 记忆系统，独立于 CC 的 per-project 记忆。
 - `uv run python -c "from brain.xxx import yyy"` — import 验证
 - 架构层边界检查 — v1/v2 不交叉 import
 
+### 变更审批规则
+
+以下改动**必须先向用户说明方案，获得批准后再实施**：
+- 新增 CLI 命令或子命令
+- 新增配置项（config.yaml 字段）
+- 修改已有命令的行为
+- 新增依赖包
+
+修复 bug、优化现有逻辑、补测试等不需要审批，但需遵守提交规范。
+
 ### 提交规范
 
 - 格式：`type(scope): description`（Conventional Commits）

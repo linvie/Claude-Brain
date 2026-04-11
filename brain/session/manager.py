@@ -56,28 +56,19 @@ def _init_workspace(workspace: Path, channel_id: str):
 
     # 复制 v2 模板（如果存在）
     if _TEMPLATE_DIR.exists():
-        for src in _TEMPLATE_DIR.iterdir():
-            if src.is_file():
-                shutil.copy2(src, workspace / src.name)
-                log.debug("复制模板: %s", src.name)
-            elif src.is_dir():
-                dest = workspace / src.name
-                if not dest.exists():
-                    shutil.copytree(src, dest)
-        # 注入 channel_id 到 CLAUDE.md
-        _inject_channel_id(workspace, channel_id)
-
-        # 注入 Notion 配置（如果启用）
+        # 复制 CLAUDE.md
+        template_claude = _TEMPLATE_DIR / "CLAUDE.md"
+        if template_claude.exists():
+            shutil.copy2(template_claude, workspace / "CLAUDE.md")
+            _inject_channel_id(workspace, channel_id)
+        # 同步其他文件和目录（.claude/ 等）
+        _sync_template_extras(workspace)
+        # 注入 Notion 配置
         if NOTION_ENABLED and NOTION_TASK_DB_ID:
             import json
-            config_data = {
-                "task_db_id": NOTION_TASK_DB_ID,
-                "project_db_id": NOTION_PROJECT_DB_ID,
-            }
             (workspace / "notion_config.json").write_text(
-                json.dumps(config_data, indent=2)
+                json.dumps({"task_db_id": NOTION_TASK_DB_ID, "project_db_id": NOTION_PROJECT_DB_ID}, indent=2)
             )
-            log.debug("注入 notion_config.json: %s", workspace.name)
     else:
         # 无模板时创建基础 CLAUDE.md
         claude_md = workspace / "CLAUDE.md"
@@ -128,7 +119,38 @@ def update_workspace_template(workspace: Path, channel_id: str):
     # 注入 channel_id
     result = result.replace("CHAT_ID", channel_id)
     claude_md.write_text(result)
+
+    # 同步模板中的其他文件和目录（.claude/ 等）
+    _sync_template_extras(workspace)
+
+    # 同步 notion_config.json
+    if NOTION_ENABLED and NOTION_TASK_DB_ID:
+        import json
+        (workspace / "notion_config.json").write_text(
+            json.dumps({"task_db_id": NOTION_TASK_DB_ID, "project_db_id": NOTION_PROJECT_DB_ID}, indent=2)
+        )
+
     log.debug("更新模板: %s", workspace.name)
+
+
+def _sync_template_extras(workspace: Path):
+    """同步模板目录中除 CLAUDE.md 外的所有文件和子目录到 workspace。"""
+    if not _TEMPLATE_DIR.exists():
+        return
+    for src in _TEMPLATE_DIR.iterdir():
+        if src.name == "CLAUDE.md":
+            continue  # CLAUDE.md 由 update_workspace_template 单独处理
+        dest = workspace / src.name
+        if src.is_file():
+            shutil.copy2(src, dest)
+        elif src.is_dir():
+            dest.mkdir(parents=True, exist_ok=True)
+            for child in src.rglob("*"):
+                if child.is_file():
+                    rel = child.relative_to(src)
+                    target = dest / rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(child, target)
 
 
 def _inject_channel_id(workspace: Path, channel_id: str):
