@@ -63,7 +63,7 @@ class _LiveSession:
         if self._system_append:
             system_prompt["append"] = self._system_append
 
-        return ClaudeAgentOptions(
+        opts = ClaudeAgentOptions(
             cwd=str(self.cwd),
             permission_mode="bypassPermissions",
             system_prompt=system_prompt,
@@ -74,6 +74,9 @@ class _LiveSession:
             # local: workspace/.claude/settings.local.json
             setting_sources=["project", "user", "local"],
         )
+        log_cc.info("CC options: model=%s, resume=%s, cwd=%s",
+                    self.model, resume, self.cwd)
+        return opts
 
     async def _ensure_connected(self, resume: str | None = None):
         """确保 client 已连接。未连接则创建新连接。"""
