@@ -292,3 +292,77 @@ class TestQueryErrorHandling:
             result = await session.query("test")
 
         assert result == ("sid-ok", "ok result")
+
+
+class TestOneShotQuery:
+    """one_shot_query: 独立 CC 进程，零状态污染。"""
+
+    async def test_returns_result_text(self):
+        """正常情况下返回 result_text 字符串。"""
+        async def mock_consume(prompt, options):
+            return "diagnosis result"
+
+        with patch.object(cc, "_consume_one_shot", side_effect=mock_consume):
+            result = await cc.one_shot_query("test prompt", "/tmp")
+        assert result == "diagnosis result"
+
+    async def test_does_not_pollute_sessions(self):
+        """one_shot_query 不应创建或修改 _sessions。"""
+        async def mock_consume(prompt, options):
+            return "result"
+
+        cc._sessions["existing-channel"] = cc._LiveSession("existing-channel", "/tmp", "")
+        sessions_snapshot = dict(cc._sessions)
+
+        with patch.object(cc, "_consume_one_shot", side_effect=mock_consume):
+            await cc.one_shot_query("test", "/tmp")
+
+        assert cc._sessions == sessions_snapshot
+
+    async def test_timeout_returns_friendly_message(self):
+        """超时应返回友好提示，不抛异常。"""
+        async def slow_consume(prompt, options):
+            await asyncio.sleep(10)
+            return "should not reach"
+
+        with patch.object(cc, "_consume_one_shot", side_effect=slow_consume):
+            result = await cc.one_shot_query("test", "/tmp", timeout=0.1)
+
+        assert "超时" in result
+
+    async def test_exception_returns_friendly_message(self):
+        """sdk_query 异常应返回友好提示。"""
+        async def fail_consume(prompt, options):
+            raise RuntimeError("boom")
+
+        with patch.object(cc, "_consume_one_shot", side_effect=fail_consume):
+            result = await cc.one_shot_query("test", "/tmp")
+
+        assert "RuntimeError" in result
+        assert "boom" in result
+
+    async def test_system_append_passed_to_options(self):
+        """system_append 应通过 options.system_prompt.append 传入。"""
+        captured_options = {}
+
+        async def capture_consume(prompt, options):
+            captured_options["opts"] = options
+            return ""
+
+        with patch.object(cc, "_consume_one_shot", side_effect=capture_consume):
+            await cc.one_shot_query("test", "/tmp", system_append="custom role")
+
+        assert captured_options["opts"].system_prompt["append"] == "custom role"
+
+    async def test_uses_claude_code_preset(self):
+        """必须使用 claude_code preset，否则 SDK 跳过 CLAUDE.md。"""
+        captured_options = {}
+
+        async def capture_consume(prompt, options):
+            captured_options["opts"] = options
+            return ""
+
+        with patch.object(cc, "_consume_one_shot", side_effect=capture_consume):
+            await cc.one_shot_query("test", "/tmp")
+
+        assert captured_options["opts"].system_prompt["preset"] == "claude_code"

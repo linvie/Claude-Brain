@@ -107,9 +107,11 @@ async def _notion_poll_loop(conn, shutdown: asyncio.Event):  # pragma: no cover
 # Brain 直接处理的命令（不需要 CC，立即响应）
 _INSTANT_COMMANDS = {"/reset", "/status", "/help", "/model", "/usage"}
 # 需要 CC 但不阻塞队列的命令
-_BACKGROUND_COMMANDS = {"/btw"}
+_BACKGROUND_COMMANDS = {"/btw", "/doctor"}
 # /btw 并发限制
 _BTW_SEMAPHORE = asyncio.Semaphore(3)
+# /doctor 并发限制（避免多个诊断同时跑）
+_DOCTOR_SEMAPHORE = asyncio.Semaphore(1)
 
 # channel_id → asyncio.Queue，只有普通对话消息才入队
 _channel_queues: dict[str, asyncio.Queue] = {}
@@ -201,6 +203,18 @@ async def _handle_command(incoming, adapter, conn):  # pragma: no cover
         asyncio.create_task(
             _run_background_task(incoming, adapter, conn, arg),
             name=f"btw-{incoming.channel_id[:8]}",
+        )
+
+    elif cmd == "/doctor":
+        # 诊断：独立 CC 进程跑，不复用 channel session（即使当前 session 死了也能跑）
+        placeholder_id = await adapter.send(OutgoingMessage(
+            channel_id=incoming.channel_id,
+            text="🩺 正在诊断（约 30-60 秒）...",
+            reply_to=incoming.message_id,
+        ))
+        asyncio.create_task(
+            _run_doctor_task(incoming, adapter, placeholder_id),
+            name=f"doctor-{incoming.channel_id[:8]}",
         )
 
     elif cmd == "/reset":
@@ -299,6 +313,7 @@ async def _handle_command(incoming, adapter, conn):  # pragma: no cover
         help_text = (
             "**可用命令：**\n\n"
             "- `/btw <任务>` — 后台执行任务（不阻塞对话）\n"
+            "- `/doctor` — 独立诊断系统状态（出错时使用）\n"
             "- `/model` — 查看当前模型和可用列表\n"
             "- `/model switch <name>` — 切换模型（sonnet/opus/haiku/default）\n"
             "- `/usage` — 查看用量统计\n"
@@ -314,6 +329,68 @@ async def _handle_command(incoming, adapter, conn):  # pragma: no cover
         ))
 
     # 不会走到这里，因为只有 _KNOWN_COMMANDS 才进入 _handle_command
+
+
+_DOCTOR_SYSTEM_APPEND = """
+你是 CCBrain 诊断助手。你被独立调起来分析系统问题，**不属于任何用户对话**。
+
+可用资源：
+- ~/.ccbrain/logs/ 下的 *.log 文件（cc.log, feishu.log, launchd.stderr.log, scheduler.log, notion.log, memory.log, session.log）
+- ~/.ccbrain/state.db（SQLite，task_runs/v2_sessions/memories 表）
+
+工作流程：
+1. 用 tail/grep 读取最近 30 分钟的相关日志
+2. 找到 ERROR 级别条目和异常 traceback
+3. 关联 cc.log 和 feishu.log 时间戳，重建事件时间线
+4. 判断根因（subprocess 崩溃 / context 超限 / 网络问题 / 权限问题 / 其他）
+5. 给出处理建议（/reset / restart / 等待 / 升级版本）
+
+输出格式（Markdown，控制在 500 字以内）：
+
+## 时间线
+（关键事件按时间排序）
+
+## 根因
+（一句话判断 + 证据）
+
+## 建议
+（用户应该做什么）
+
+约束：
+- **不要修改任何文件**，只读分析
+- 如果近 30 分钟无 ERROR，回复 "系统状态正常，最近 30 分钟无异常"
+- 不要执行 ccbrain 的 install/restart/reset 等命令，只做诊断
+"""
+
+_DOCTOR_PROMPT = "请诊断 CCBrain 最近 30 分钟的状态。"
+
+
+async def _run_doctor_task(incoming, adapter, placeholder_id):  # pragma: no cover
+    """独立诊断任务：用 one_shot_query 跑全新 CC 进程，结果更新到占位卡片。"""
+    from brain.executor.cc import one_shot_query
+    from brain.session.manager import get_workspace
+
+    channel_id = incoming.channel_id
+
+    async with _DOCTOR_SEMAPHORE:
+        workspace = get_workspace(channel_id)
+        try:
+            result = await one_shot_query(
+                prompt=_DOCTOR_PROMPT,
+                cwd=workspace,
+                system_append=_DOCTOR_SYSTEM_APPEND,
+                timeout=120.0,
+            )
+            final_text = f"**🩺 诊断报告**\n\n{result}" if result else "🩺 诊断未返回结果"
+            if placeholder_id:
+                await adapter.patch_card(placeholder_id, final_text)
+        except Exception:
+            log_feishu.exception("doctor 任务异常: channel=%s", channel_id)
+            if placeholder_id:
+                try:
+                    await adapter.patch_card(placeholder_id, "🩺 诊断失败")
+                except Exception:
+                    pass
 
 
 async def _run_background_task(incoming, adapter, conn, task_desc: str):  # pragma: no cover

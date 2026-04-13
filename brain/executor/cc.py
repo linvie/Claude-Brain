@@ -292,6 +292,64 @@ async def execute(
     return await session.query(prompt, resume=resume, on_stream=on_stream)
 
 
+async def one_shot_query(
+    prompt: str,
+    cwd: str | Path,
+    system_append: str = "",
+    timeout: float = 120.0,
+) -> str:
+    """独立一次性 query：完全隔离的 CC 进程，不复用任何 session。
+
+    用于 /doctor 等需要隔离环境的诊断/工具任务。即使当前 channel 的
+    session 已死，这个调用也能正常工作。
+
+    Args:
+        prompt: 用户指令
+        cwd: 工作目录（可与 channel workspace 相同）
+        system_append: 追加到 system prompt 的指令（角色定位等）
+        timeout: 总超时（秒），超时返回错误文案
+
+    Returns:
+        result_text 字符串。失败时返回错误说明而非抛异常。
+    """
+    cwd = Path(cwd)
+    system_prompt: dict = {"type": "preset", "preset": "claude_code"}
+    if system_append:
+        system_prompt["append"] = system_append
+
+    options = ClaudeAgentOptions(
+        cwd=str(cwd),
+        permission_mode="bypassPermissions",
+        system_prompt=system_prompt,
+        setting_sources=["project", "user", "local"],
+    )
+
+    log_cc.info("one_shot_query 启动: cwd=%s, prompt=%s", cwd, prompt[:80])
+
+    try:
+        return await asyncio.wait_for(
+            _consume_one_shot(prompt, options),
+            timeout=timeout,
+        )
+    except asyncio.TimeoutError:
+        log_cc.warning("one_shot_query 超时: cwd=%s", cwd)
+        return f"⚠️ 任务超时（{int(timeout)}s 未完成）"
+    except Exception as e:
+        log_cc.exception("one_shot_query 失败: cwd=%s", cwd)
+        return f"⚠️ 任务执行失败：{type(e).__name__}: {e}"
+
+
+async def _consume_one_shot(prompt: str, options: ClaudeAgentOptions) -> str:
+    """跑完一次 sdk_query，收集最终 result_text。"""
+    from claude_agent_sdk import query as sdk_query
+
+    result_text = ""
+    async for message in sdk_query(prompt=prompt, options=options):
+        if isinstance(message, ResultMessage):
+            result_text = message.result or ""
+    return result_text
+
+
 def get_session_info(channel_id: str) -> dict:
     """获取 channel 的 CC 会话信息（供 /status /model /usage 命令使用）。"""
     session = _sessions.get(channel_id)
