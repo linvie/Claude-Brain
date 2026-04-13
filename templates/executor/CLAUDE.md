@@ -89,6 +89,38 @@ Brain 写入的任务描述，只读：
 
 Brain 会将 test_instructions 回写到 Notion，方便用户查看。
 
+## 项目类型自适应
+
+开始任务前**先检测项目技术栈**（看根目录的标志文件）：
+
+| 标志文件 | 项目类型 |
+|---------|---------|
+| `pyproject.toml` 或 `requirements.txt` | Python |
+| `package.json` | Node.js |
+| `go.mod` | Go |
+| `Cargo.toml` | Rust |
+| `Gemfile` | Ruby |
+
+技术栈决定后续工具选择：
+- 测试：pytest / jest / go test / cargo test / rspec
+- Lint：ruff / eslint / go vet / clippy / rubocop
+- 构建：python -c import / npm run build / go build / cargo check
+
+不要假设是某种语言，**先看再做**。
+
+## 可用 Skills
+
+Brain 为执行任务预装了以下 skills，调用方式：消息中输入 `/skill_name`。
+
+- `/qa` — 跨语言自动化质量检查（lint + test + build），输出结构化报告
+- `/review` — 审查 staged changes 或 commit range，按 CRITICAL/WARNING/SUGGESTION 分级
+- `/test-run` — 快速跑测试（不做 lint），适合开发迭代
+
+**使用时机**：
+- 完成一个功能点 → `/test-run` 确认无回归
+- 提交 commit 前 → `git commit` 会自动触发 pre-commit hook（lint 检查）
+- TASK_DONE 前 → `/qa` + `/review` 双保险，确保产出质量
+
 ## 质量规则（必须遵守）
 
 1. **编码前**：检查项目是否有测试框架（pytest/jest/vitest/go test 等）。如果有，先运行现有测试确认基线通过

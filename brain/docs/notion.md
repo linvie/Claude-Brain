@@ -63,6 +63,21 @@ Token 获取：https://www.notion.so/profile/integrations → 创建 Integration
 - 单任务超时：`task.max_duration`（默认 2 小时）
 - 执行日志自动写入 Task 的 `execution_log`
 
+## Executor 自带 QA（v0.5+）
+
+每个 executor workspace 自动获得：
+
+**Pre-commit hook**（自动）：
+- Python 项目：ruff 检查（pyproject.toml 有 `[tool.ruff]` 时强制）
+- Node/Go/Rust：lint 软提示（不阻塞）
+
+**可用 Skills**：
+- `/qa` — 跨语言自动化质量检查（lint + test + build）
+- `/review` — 审查 staged changes，按 CRITICAL/WARNING/SUGGESTION 分级
+- `/test-run` — 快速跑项目测试
+
+CC 在执行 Notion 任务时会主动调用这些 skill，提升产出质量。无需配置，模板自带。
+
 ## 任务生命周期
 
 ```
