@@ -58,6 +58,8 @@ def _generate_plist() -> str:
     <dict>
         <key>PATH</key>
         <string>{shell_path}</string>
+        <key>CLAUDE_AUTOCOMPACT_PCT_OVERRIDE</key>
+        <string>70</string>
     </dict>
     <key>ProgramArguments</key>
     <array>

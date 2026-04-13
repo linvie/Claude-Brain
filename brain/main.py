@@ -427,7 +427,7 @@ async def _handle_chat(incoming, adapter, conn):  # pragma: no cover
             save_session(conn, channel_id, new_session_id)
 
         # 5. 最终更新卡片为完整结果
-        final_text = result_text if result_text else "（CC 未返回结果）"
+        final_text = result_text if result_text else "⚠️ CC 未返回结果（可能 context 超限）。请尝试 /reset 开新会话。"
         if card_msg_id:
             await adapter.patch_card(card_msg_id, final_text)
 

@@ -121,9 +121,48 @@ class _LiveSession:
     ) -> tuple[str | None, str]:
         """发送消息并收集结果，支持流式回调。
 
+        错误处理：
+        - Layer 1 自愈：ProcessTransport 错误（CC 进程死了）→ 自动重连 + 重试一次
+        - Layer 2 僵死检测：receive_response 无消息超过 RESPONSE_TIMEOUT → 主动断开
+        - Layer 3 错误文案：返回友好的错误提示给用户
+
         Args:
             on_stream: async callable(text: str)，CC 每产出一段文本时调用
         """
+        try:
+            return await self._query_once(prompt, resume=resume, on_stream=on_stream)
+        except Exception as e:
+            err_msg = str(e)
+            # Layer 1: CC 子进程崩溃 → 自愈
+            if "ProcessTransport" in err_msg or "not ready" in err_msg:
+                log_cc.warning("CC 进程已死，自动重连重试: channel=%s", self.channel_id)
+                self._connected = False
+                self.client = None
+                resume_id = self.session_id or resume
+                try:
+                    return await self._query_once(prompt, resume=resume_id, on_stream=on_stream)
+                except Exception:
+                    log_cc.exception("CC 自愈重试仍失败: channel=%s", self.channel_id)
+                    return None, "⚠️ 会话临时中断，已尝试恢复但失败。请 /reset 开新会话后重试。"
+            # Layer 2: 僵死超时
+            if isinstance(e, asyncio.TimeoutError):
+                log_cc.warning("CC 响应超时，断开重连: channel=%s", self.channel_id)
+                await self._disconnect()
+                return None, "⚠️ 上一次请求响应超时（可能因对话过长），已重置连接。请重新发送消息。"
+            # Layer 3: 其他错误
+            log_cc.exception("CC query 失败: channel=%s", self.channel_id)
+            return None, f"⚠️ 处理消息时发生错误：{type(e).__name__}\n如果多次失败，请尝试 /reset 开新会话。"
+
+    # receive_response 空闲超时（秒）：单次流式消息间隔超过此值则判定僵死
+    _RESPONSE_IDLE_TIMEOUT = 180.0
+
+    async def _query_once(
+        self,
+        prompt: str,
+        resume: str | None = None,
+        on_stream=None,
+    ) -> tuple[str | None, str]:
+        """单次 query（不带重试）。"""
         self.last_activity = time.time()
 
         try:
@@ -142,7 +181,17 @@ class _LiveSession:
 
         try:
             await self.client.query(prompt)
-            async for message in self.client.receive_response():
+            # Layer 2: 用 wait_for 包裹每次 __anext__，检测僵死
+            response_iter = self.client.receive_response().__aiter__()
+            while True:
+                try:
+                    message = await asyncio.wait_for(
+                        response_iter.__anext__(),
+                        timeout=self._RESPONSE_IDLE_TIMEOUT,
+                    )
+                except StopAsyncIteration:
+                    break
+
                 if isinstance(message, AssistantMessage):
                     for block in message.content:
                         if isinstance(block, TextBlock) and block.text:

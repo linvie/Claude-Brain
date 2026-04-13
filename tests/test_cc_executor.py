@@ -7,6 +7,7 @@
 - 新 session 未继承 _model_overrides
 """
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -208,3 +209,86 @@ class TestBuildOptions:
         session = cc._LiveSession("ch1", "/tmp", "")
         opts = session._build_options()
         assert opts.permission_mode == "bypassPermissions"
+
+
+class TestQueryErrorHandling:
+    """query(): 三层错误处理 — 自愈、超时、友好提示。"""
+
+    async def test_process_transport_auto_recovery(self):
+        """ProcessTransport 错误应自动重连重试并返回成功结果。"""
+        session = cc._LiveSession("ch1", "/tmp", "")
+        session.session_id = "prev-session"
+
+        # 第一次 _query_once 抛 ProcessTransport，第二次成功
+        call_count = [0]
+
+        async def mock_query_once(prompt, resume=None, on_stream=None):
+            call_count[0] += 1
+            if call_count[0] == 1:
+                raise Exception("ProcessTransport is not ready for writing")
+            return ("new-session", "recovered result")
+
+        with patch.object(session, "_query_once", side_effect=mock_query_once):
+            result = await session.query("test")
+
+        assert call_count[0] == 2  # 重试了一次
+        assert result == ("new-session", "recovered result")
+        assert session._connected is False  # 被清理
+        assert session.client is None
+
+    async def test_process_transport_recovery_fails(self):
+        """自愈重试仍失败应返回友好错误文案。"""
+        session = cc._LiveSession("ch1", "/tmp", "")
+
+        async def mock_query_once(prompt, resume=None, on_stream=None):
+            raise Exception("ProcessTransport is not ready for writing")
+
+        with patch.object(session, "_query_once", side_effect=mock_query_once):
+            session_id, result = await session.query("test")
+
+        assert session_id is None
+        assert "会话临时中断" in result
+        assert "/reset" in result
+
+    async def test_timeout_error_returns_friendly_message(self):
+        """asyncio.TimeoutError 应断开重连并返回超时提示。"""
+        session = cc._LiveSession("ch1", "/tmp", "")
+
+        async def mock_query_once(prompt, resume=None, on_stream=None):
+            raise asyncio.TimeoutError()
+
+        with (
+            patch.object(session, "_query_once", side_effect=mock_query_once),
+            patch.object(session, "_disconnect", new_callable=AsyncMock) as mock_disc,
+        ):
+            session_id, result = await session.query("test")
+
+        assert session_id is None
+        assert "超时" in result
+        mock_disc.assert_awaited_once()
+
+    async def test_generic_error_returns_friendly_message(self):
+        """其他异常应返回通用错误提示，不抛出给上层。"""
+        session = cc._LiveSession("ch1", "/tmp", "")
+
+        async def mock_query_once(prompt, resume=None, on_stream=None):
+            raise ValueError("random error")
+
+        with patch.object(session, "_query_once", side_effect=mock_query_once):
+            session_id, result = await session.query("test")
+
+        assert session_id is None
+        assert "ValueError" in result
+        assert "/reset" in result
+
+    async def test_normal_query_returns_result(self):
+        """正常情况下直接返回 _query_once 的结果。"""
+        session = cc._LiveSession("ch1", "/tmp", "")
+
+        async def mock_query_once(prompt, resume=None, on_stream=None):
+            return ("sid-ok", "ok result")
+
+        with patch.object(session, "_query_once", side_effect=mock_query_once):
+            result = await session.query("test")
+
+        assert result == ("sid-ok", "ok result")
