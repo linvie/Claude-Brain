@@ -28,6 +28,7 @@ ccbrain config lark-cli
 | 命令 | 说明 |
 |------|------|
 | `/btw <任务>` | 后台执行任务（不阻塞当前对话，最多 3 个并发） |
+| `/doctor` | 独立诊断系统状态（出错时使用，不污染当前 session） |
 | `/model` | 查看当前模型和可用列表 |
 | `/model switch <name>` | 切换模型（opus/sonnet/haiku/default） |
 | `/usage` | 查看查询次数和累计费用 |
@@ -40,8 +41,17 @@ ccbrain config lark-cli
 - 命令即时响应，不受 CC 执行阻塞
 - 普通消息线性排队处理（同一会话内）
 - 每个飞书群/私聊自动创建独立 workspace
-- Session 空闲超时归档，下次对话自动 resume 恢复上下文
+- **Session 持久**：仅 `/reset` 时归档，平时永远 resume（保持完整上下文）
 - 流式卡片输出：占位卡片 → 每 2 秒更新 → 最终结果
+
+## 可靠性
+
+- **自动 context 压缩**：通过 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=70` 环境变量在 70% 用量时触发压缩
+- **三层错误自愈**：
+  - Layer 1：CC 子进程崩溃 → 自动重连 + 重试（用户无感知）
+  - Layer 2：response 180 秒无消息 → 主动超时断开
+  - Layer 3：所有错误返回友好文案而非"处理消息时发生错误"
+- **/doctor 命令**：独立 CC 进程跑诊断，即使当前 session 死了也能查问题
 
 ## Notion 集成（v0.4+）
 

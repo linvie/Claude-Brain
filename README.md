@@ -30,15 +30,22 @@ ccbrain install     # 注册 launchd 后台服务并启动
 
 ## 飞书对话
 
-直接给 Bot 发消息对话。CC 拥有完整工具能力。
+直接给 Bot 发消息对话。CC 拥有完整工具能力 + Notion MCP（可读写 Notion）。
+
+**特性：**
+- 流式卡片输出（每 2 秒更新）
+- 持久 session（仅 `/reset` 时归档，平时永远 resume）
+- 自动 context 压缩（70% 阈值）+ 三层错误自愈
+- v1 任务完成/阻塞自动通知到飞书
 
 | 命令 | 说明 |
 |------|------|
-| `/btw <任务>` | 后台执行（不阻塞对话） |
-| `/model switch <name>` | 切换模型（opus/sonnet/haiku） |
+| `/btw <任务>` | 后台执行（不阻塞对话，最多 3 并发） |
+| `/doctor` | 独立诊断系统状态（出错时使用） |
+| `/model` / `/model switch <name>` | 查看/切换模型（opus/sonnet/haiku/default） |
 | `/usage` | 查看用量和费用 |
-| `/status` | Session 状态 |
-| `/reset` | 重置对话 |
+| `/status` | Session 状态、CC 连接、模型 |
+| `/reset` | 重置对话 session |
 | `/help` | 帮助 |
 
 详细设置 → [brain/docs/feishu.md](brain/docs/feishu.md)
@@ -61,11 +68,11 @@ Pending → Ready → Running → Done / Blocked
 
 ```bash
 ccbrain init              # 配置向导
-ccbrain config <sub>      # 配置管理（show/edit/feishu/notion/lark-cli）
-ccbrain install           # 注册服务
+ccbrain config <sub>      # 配置管理（show/edit/feishu/notion/lark-cli/reinit-workspace）
+ccbrain install           # 注册服务（自动注入 shell PATH 到 launchd）
 ccbrain start / stop / restart
 ccbrain status            # 运行状态
-ccbrain logs [name]       # 查看日志（brain/feishu/cc/session/scheduler）
+ccbrain logs [name]       # 查看日志（brain/feishu/cc/session/scheduler/notion/memory）
 ccbrain run               # 前台运行（调试）
 ```
 
