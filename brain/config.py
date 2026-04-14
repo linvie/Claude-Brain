@@ -68,3 +68,9 @@ NOTION_PROJECT_DB_ID = _notion_cfg.get("project_db_id", "")
 _session_cfg = CONFIG.get("session", {})
 SESSION_IDLE_TIMEOUT = _session_cfg.get("idle_timeout", 600)
 SESSION_MAX_AGE = _session_cfg.get("max_age", 604800)
+
+# v2: 记忆配置
+_memory_cfg = CONFIG.get("memory", {})
+MEMORY_DECAY_HALF_LIFE = _memory_cfg.get("decay_half_life_days", 30)
+MEMORY_ALWAYS_ON_THRESHOLD = _memory_cfg.get("always_on_threshold", 8)
+MEMORY_MAX_CONTEXT_TOKENS = _memory_cfg.get("max_context_tokens", 2000)

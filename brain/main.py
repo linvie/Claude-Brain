@@ -487,7 +487,7 @@ async def _handle_chat(incoming, adapter, conn):  # pragma: no cover
             touch_session(conn, channel_id, session_id)
             log_feishu.info("复用 session: channel=%s, session=%s", channel_id, session_id)
 
-        memory_context = build_memory_context(conn, incoming.text)
+        memory_context = build_memory_context(conn, incoming.text, channel_id=channel_id)
 
         # 2.5 构建 system_append（记忆 + 飞书 chat_id + Notion context）
         lark_context = (
