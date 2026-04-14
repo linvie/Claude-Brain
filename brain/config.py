@@ -78,3 +78,4 @@ MEMORY_EXTRACTION_MODEL = _memory_cfg.get("extraction_model", "claude-haiku-4-5-
 MEMORY_DECAY_HALF_LIFE = _memory_cfg.get("decay_half_life_days", 30)
 MEMORY_ALWAYS_ON_THRESHOLD = _memory_cfg.get("always_on_threshold", 8)
 MEMORY_MAX_CONTEXT_TOKENS = _memory_cfg.get("max_context_tokens", 2000)
+MEMORY_VIEWS_INTERVAL_HOURS = _memory_cfg.get("views_interval_hours", 6)

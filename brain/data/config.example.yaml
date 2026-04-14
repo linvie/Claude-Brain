@@ -80,6 +80,7 @@ memory:
   decay_half_life_days: 30   # 时间衰减半衰期（天）
   always_on_threshold: 8     # importance >= 此值的记忆始终注入
   max_context_tokens: 2000   # 注入记忆的 token 上限
+  views_interval_hours: 6    # 每日摘要检查间隔（小时）
 
 # ── 日志 ──
 logging:

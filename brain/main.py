@@ -15,6 +15,8 @@ from brain.config import (
     IDLE_INTERVAL,
     MAX_CONCURRENT,
     MAX_TASK_DURATION,
+    MEMORY_ENABLED,
+    MEMORY_VIEWS_INTERVAL_HOURS,
     NOTION_ENABLED,
     NOTION_PROJECT_DB_ID,
     NOTION_TASK_DB_ID,
@@ -566,6 +568,29 @@ async def _handle_chat(incoming, adapter, conn):  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
+# 记忆系统：Daily Views 定时任务
+# ---------------------------------------------------------------------------
+
+async def _daily_views_loop(conn, shutdown: asyncio.Event):  # pragma: no cover
+    """定时运行 daily views 生成。每 MEMORY_VIEWS_INTERVAL_HOURS 小时检查一次。"""
+    from brain.memory.views import run_daily_views_job
+
+    interval = MEMORY_VIEWS_INTERVAL_HOURS * 3600
+    log.info("[memory] daily views 定时任务已启动 (间隔 %dh)", MEMORY_VIEWS_INTERVAL_HOURS)
+
+    while not shutdown.is_set():
+        try:
+            await run_daily_views_job(conn)
+        except Exception:
+            log.exception("[memory] daily views job 异常")
+
+        try:
+            await asyncio.wait_for(shutdown.wait(), timeout=interval)
+        except asyncio.TimeoutError:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # 启动时更新 workspace 模板
 # ---------------------------------------------------------------------------
 
@@ -642,6 +667,16 @@ async def main():  # pragma: no cover
         tasks.append(t)
     else:
         log.info("飞书 adapter 未启用")
+
+    # 记忆系统：Daily Views 定时任务
+    if MEMORY_ENABLED:
+        log.info("记忆系统 daily views 已启用")
+        t = asyncio.create_task(
+            _daily_views_loop(conn, _shutdown_event),
+            name="daily-views",
+        )
+        t.add_done_callback(_on_task_exception)
+        tasks.append(t)
 
     if not tasks:
         log.warning("无任何事件源启用，Brain 将空转等待信号")
