@@ -8,11 +8,12 @@
 1. 读取 `WORKFLOW.md` 了解系统整体工作流规范
 2. 读取 `inbox.json`，理解任务目标、上下文和约束
 3. 如果 workspace 中存在 `docs/` 目录，先阅读其中的文件了解项目上下文（见下方「项目上下文目录」）
-4. 使用 TodoWrite 将任务拆解为可执行的子步骤
-5. 逐步执行代码实现
-6. 每完成一个主要阶段，向 `outbox.json` 写入 `TASK_PROGRESS` 并校验
-7. 全部完成后，向 `outbox.json` 写入 `TASK_DONE` 并校验（包含 `test_instructions`）
-8. 提交 git commit，描述本次改动
+4. **创建 feature branch**（见下方「Git 分支与 PR 规范」）
+5. 使用 TodoWrite 将任务拆解为可执行的子步骤
+6. 逐步执行代码实现
+7. 每完成一个主要阶段，向 `outbox.json` 写入 `TASK_PROGRESS` 并校验
+8. 全部完成后，向 `outbox.json` 写入 `TASK_DONE` 并校验（包含 `test_instructions`）
+9. **推送分支并创建 PR**（见下方「Git 分支与 PR 规范」），将 PR URL 写入 outbox.json 的 `pr_url` 字段
 
 ## inbox.json 格式
 
@@ -74,7 +75,7 @@ Brain 写入的任务描述，只读：
 快速参考：
 
 ```json
-{"status": "TASK_DONE", "summary": "做了什么", "artifacts": ["file1.py"], "test_instructions": "如何测试"}
+{"status": "TASK_DONE", "summary": "做了什么", "artifacts": ["file1.py"], "test_instructions": "如何测试", "pr_url": "https://..."}
 {"status": "TASK_BLOCKED", "reason": "具体原因", "summary": "当前状态"}
 {"status": "TASK_PROGRESS", "stage": "阶段描述", "summary": "当前进展"}
 ```
@@ -151,6 +152,80 @@ Brain 为执行任务预装了以下 skills，调用方式：消息中输入 `/s
    - type: feat / fix / refactor / docs / test / chore
 3. 所有步骤完成后运行完整测试套件
 4. 最后写 outbox.json（TASK_DONE + 测试结果）
+
+## Git 分支与 PR 规范（强制）
+
+**所有代码变更必须通过 PR 合并，禁止直接推 main。**
+
+### 任务开始时：创建 feature branch
+
+```bash
+git checkout main
+git pull origin main
+git checkout -b task/<task_id前8位>-<短描述>
+# 例：task/342e370a-add-login-api
+```
+
+命名规则：
+- 前缀：`task/`
+- task_id 取前 8 位
+- 短描述：从 task_name 提取 2-4 个英文单词，用 `-` 连接
+- 全小写，不含空格或特殊字符
+
+### 开发过程中
+
+所有 commit 都在 feature branch 上进行，遵循上方「提交规范」。
+
+### 版本号更新
+
+如果项目根目录有版本号文件（`pyproject.toml` 的 `version` 字段、`package.json` 的 `version`），在最后一次 commit 前更新版本号：
+
+- `fix` 类任务：patch +1（如 `0.6.2` → `0.6.3`）
+- `feat` 类任务：minor +1（如 `0.6.2` → `0.7.0`）
+- breaking change：major +1（如 `0.6.2` → `1.0.0`）
+
+对于 Python 项目（有 `pyproject.toml`），更新后运行 `uv sync` 同步 lock 文件。
+对于 Node.js 项目（有 `package.json`），`npm install` 会自动更新。
+
+版本号更新单独一个 commit：`chore: bump version to x.y.z`。
+
+### 任务完成时：推送并创建 PR
+
+```bash
+# 1. 推送分支
+git push origin task/<branch-name>
+
+# 2. 创建 PR
+gh pr create \
+  --title "<inbox.json 中的 task_name>" \
+  --body "$(cat <<'EOF'
+## Summary
+<outbox.json 中的 summary>
+
+## Test Instructions
+<outbox.json 中的 test_instructions>
+EOF
+)"
+
+# 3. 获取 PR URL
+PR_URL=$(gh pr view --json url -q .url)
+```
+
+### 将 PR URL 写入 outbox.json
+
+创建 PR 后，重新写入 outbox.json，加入 `pr_url` 字段：
+
+```json
+{
+  "status": "TASK_DONE",
+  "summary": "做了什么",
+  "artifacts": ["file1.py"],
+  "test_instructions": "如何测试",
+  "pr_url": "https://github.com/owner/repo/pull/123"
+}
+```
+
+**完整流程**：写 outbox（TASK_DONE） → 校验 → 推送分支 → 创建 PR → 更新 outbox 加入 pr_url → 再次校验。
 
 ## 上下文恢复
 
