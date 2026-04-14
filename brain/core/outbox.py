@@ -77,6 +77,11 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
                 test_instructions = test_instructions.replace("127.0.0.1", REMOTE_HOST)
             append_log(task_id, f"[{now_str}] 测试方法:\n{test_instructions}")
 
+        # 提取 pr_url 并追加到 Notion
+        pr_url = data.get("pr_url", "")
+        if pr_url:
+            append_log(task_id, f"[{now_str}] PR 已创建: {pr_url}")
+
         update_status(task_id, "Done")
         end_time = int(time.time())
         conn.execute(
@@ -109,9 +114,12 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
             )
             conn.commit()
 
-        # 飞书通知
+        # 飞书通知（含 PR 链接）
         task_name = row["task_name"] if row else task_id
-        _notify_feishu("TASK_DONE", task_name, summary)
+        notify_summary = summary
+        if pr_url:
+            notify_summary = f"{summary}\n\nPR: {pr_url}"
+        _notify_feishu("TASK_DONE", task_name, notify_summary)
 
     elif status == "TASK_BLOCKED":
         _kill_cc_process(conn, task_id)

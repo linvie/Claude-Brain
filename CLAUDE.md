@@ -102,6 +102,14 @@ Brain 与 CC 通过 workspace 中的 JSON 文件通信：
 - `inbox.json`：Brain 写入完整任务上下文，CC 读取
 - `outbox.json`：CC 写入执行结果，Brain 轮询读取
 - Status token：`TASK_DONE` / `TASK_BLOCKED` / `TASK_PROGRESS`
+- `pr_url`：TASK_DONE 时可选，executor 创建 PR 后填入，Brain 写入 Notion 并通过飞书通知
+
+## v1: Git 分支策略
+
+Executor CC 在 feature branch 上工作，完成后通过 `gh pr create` 创建 PR，禁止直接推 main：
+- 分支命名：`task/<task_id前8位>-<短描述>`
+- 完成后推送分支 + 创建 PR，PR URL 写入 outbox.json
+- Brain 读取 pr_url 后记录到 Notion 并飞书通知用户审阅
 
 ## v2: 消息流
 

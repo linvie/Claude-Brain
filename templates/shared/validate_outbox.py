@@ -82,7 +82,13 @@ def validate(path: Path) -> list[str]:
         if not ti or not isinstance(ti, str) or not ti.strip():
             errors.append("status=TASK_DONE 时必须提供非空的 'test_instructions'（说明如何验证改动）")
 
-    # 9. summary 不得包含占位符
+    # 9. pr_url（可选，但如果有必须是字符串且非空）
+    if "pr_url" in data:
+        pr_url = data["pr_url"]
+        if not isinstance(pr_url, str) or not pr_url.strip():
+            errors.append("'pr_url' 必须是非空字符串")
+
+    # 10. summary 不得包含占位符
     if summary and isinstance(summary, str):
         placeholders = ["TBD", "TODO", "待定", "FIXME", "XXX"]
         for ph in placeholders:
