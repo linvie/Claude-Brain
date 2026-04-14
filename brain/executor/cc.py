@@ -118,8 +118,10 @@ class _LiveSession:
         prompt: str,
         resume: str | None = None,
         on_stream: asyncio.coroutines = None,
-    ) -> tuple[str | None, str]:
+    ) -> tuple[str | None, str, dict]:
         """发送消息并收集结果，支持流式回调。
+
+        返回 (session_id, result_text, metadata)。metadata 包含 duration_ms、model 等。
 
         错误处理：
         - Layer 1 自愈：ProcessTransport 错误（CC 进程死了）→ 自动重连 + 重试一次
@@ -133,7 +135,6 @@ class _LiveSession:
             return await self._query_once(prompt, resume=resume, on_stream=on_stream)
         except Exception as e:
             err_msg = str(e)
-            # Layer 1: CC 子进程崩溃 → 自愈
             if "ProcessTransport" in err_msg or "not ready" in err_msg:
                 log_cc.warning("CC 进程已死，自动重连重试: channel=%s", self.channel_id)
                 self._connected = False
@@ -143,15 +144,13 @@ class _LiveSession:
                     return await self._query_once(prompt, resume=resume_id, on_stream=on_stream)
                 except Exception:
                     log_cc.exception("CC 自愈重试仍失败: channel=%s", self.channel_id)
-                    return None, "⚠️ 会话临时中断，已尝试恢复但失败。请 /reset 开新会话后重试。"
-            # Layer 2: 僵死超时
+                    return None, "⚠️ 会话临时中断，已尝试恢复但失败。请 /reset 开新会话后重试。", {}
             if isinstance(e, asyncio.TimeoutError):
                 log_cc.warning("CC 响应超时，断开重连: channel=%s", self.channel_id)
                 await self._disconnect()
-                return None, "⚠️ 上一次请求响应超时（可能因对话过长），已重置连接。请重新发送消息。"
-            # Layer 3: 其他错误
+                return None, "⚠️ 上一次请求响应超时（可能因对话过长），已重置连接。请重新发送消息。", {}
             log_cc.exception("CC query 失败: channel=%s", self.channel_id)
-            return None, f"⚠️ 处理消息时发生错误：{type(e).__name__}\n如果多次失败，请尝试 /reset 开新会话。"
+            return None, f"⚠️ 处理消息时发生错误：{type(e).__name__}\n如果多次失败，请尝试 /reset 开新会话。", {}
 
     # receive_response 空闲超时（秒）：单次流式消息间隔超过此值则判定僵死
     _RESPONSE_IDLE_TIMEOUT = 180.0
@@ -161,8 +160,8 @@ class _LiveSession:
         prompt: str,
         resume: str | None = None,
         on_stream=None,
-    ) -> tuple[str | None, str]:
-        """单次 query（不带重试）。"""
+    ) -> tuple[str | None, str, dict]:
+        """单次 query（不带重试）。返回 (session_id, result_text, metadata)。"""
         self.last_activity = time.time()
 
         try:
@@ -178,10 +177,11 @@ class _LiveSession:
         result_text = ""
         streaming_text = ""
         last_stream_time = 0.0
+        model_name = None
+        metadata: dict = {}
 
         try:
             await self.client.query(prompt)
-            # Layer 2: 用 wait_for 包裹每次 __anext__，检测僵死
             response_iter = self.client.receive_response().__aiter__()
             while True:
                 try:
@@ -193,17 +193,17 @@ class _LiveSession:
                     break
 
                 if isinstance(message, AssistantMessage):
+                    model_name = getattr(message, "model", None) or model_name
                     for block in message.content:
                         if isinstance(block, TextBlock) and block.text:
                             streaming_text += block.text
-                            # 节流：每 2 秒推送一次
                             now = time.time()
                             if on_stream and now - last_stream_time > 2:
                                 last_stream_time = now
                                 try:
                                     await on_stream(streaming_text)
                                 except Exception:
-                                    pass  # 流式更新失败不影响执行
+                                    pass
 
                 elif isinstance(message, ResultMessage):
                     session_id = message.session_id
@@ -211,6 +211,12 @@ class _LiveSession:
                     cost = getattr(message, "total_cost_usd", 0) or 0
                     self.total_cost += cost
                     self.total_queries += 1
+                    metadata = {
+                        "duration_ms": getattr(message, "duration_ms", 0) or 0,
+                        "model": model_name,
+                        "total_cost_usd": cost,
+                        "num_turns": getattr(message, "num_turns", 0) or 0,
+                    }
                     log_cc.info(
                         "CC 完成: session=%s, cost=$%.4f, result=%s",
                         session_id, cost, result_text[:100],
@@ -222,14 +228,14 @@ class _LiveSession:
 
         self.session_id = session_id
         self.last_activity = time.time()
-        return session_id, result_text
+        return session_id, result_text, metadata
 
     async def _fallback_query(
         self,
         prompt: str,
         resume: str | None,
         on_stream=None,
-    ) -> tuple[str | None, str]:
+    ) -> tuple[str | None, str, dict]:
         """连接失败时的 fallback：一次性 query。"""
         from claude_agent_sdk import query as sdk_query
 
@@ -240,9 +246,12 @@ class _LiveSession:
         result_text = ""
         streaming_text = ""
         last_stream_time = 0.0
+        model_name = None
+        metadata: dict = {}
 
         async for message in sdk_query(prompt=prompt, options=options):
             if isinstance(message, AssistantMessage):
+                model_name = getattr(message, "model", None) or model_name
                 for block in message.content:
                     if isinstance(block, TextBlock) and block.text:
                         streaming_text += block.text
@@ -257,10 +266,17 @@ class _LiveSession:
             elif isinstance(message, ResultMessage):
                 session_id = message.session_id
                 result_text = message.result or ""
+                cost = getattr(message, "total_cost_usd", 0) or 0
+                metadata = {
+                    "duration_ms": getattr(message, "duration_ms", 0) or 0,
+                    "model": model_name,
+                    "total_cost_usd": cost,
+                    "num_turns": getattr(message, "num_turns", 0) or 0,
+                }
 
         self.session_id = session_id
         self.last_activity = time.time()
-        return session_id, result_text
+        return session_id, result_text, metadata
 
 
 async def execute(
@@ -271,8 +287,10 @@ async def execute(
     system_append: str = "",
     resume: str | None = None,
     on_stream=None,
-) -> tuple[str | None, str]:
+) -> tuple[str | None, str, dict]:
     """执行 CC 任务，复用或创建 channel 的持久会话。
+
+    返回 (session_id, result_text, metadata)。metadata 含 duration_ms、model、total_cost_usd 等。
 
     Args:
         on_stream: async callable(text: str)，CC 输出过程中定期调用（约每 2 秒）

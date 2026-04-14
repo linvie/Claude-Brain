@@ -226,13 +226,13 @@ class TestQueryErrorHandling:
             call_count[0] += 1
             if call_count[0] == 1:
                 raise Exception("ProcessTransport is not ready for writing")
-            return ("new-session", "recovered result")
+            return ("new-session", "recovered result", {"duration_ms": 100})
 
         with patch.object(session, "_query_once", side_effect=mock_query_once):
             result = await session.query("test")
 
         assert call_count[0] == 2  # 重试了一次
-        assert result == ("new-session", "recovered result")
+        assert result == ("new-session", "recovered result", {"duration_ms": 100})
         assert session._connected is False  # 被清理
         assert session.client is None
 
@@ -244,11 +244,12 @@ class TestQueryErrorHandling:
             raise Exception("ProcessTransport is not ready for writing")
 
         with patch.object(session, "_query_once", side_effect=mock_query_once):
-            session_id, result = await session.query("test")
+            session_id, result, meta = await session.query("test")
 
         assert session_id is None
         assert "会话临时中断" in result
         assert "/reset" in result
+        assert meta == {}
 
     async def test_timeout_error_returns_friendly_message(self):
         """asyncio.TimeoutError 应断开重连并返回超时提示。"""
@@ -261,10 +262,11 @@ class TestQueryErrorHandling:
             patch.object(session, "_query_once", side_effect=mock_query_once),
             patch.object(session, "_disconnect", new_callable=AsyncMock) as mock_disc,
         ):
-            session_id, result = await session.query("test")
+            session_id, result, meta = await session.query("test")
 
         assert session_id is None
         assert "超时" in result
+        assert meta == {}
         mock_disc.assert_awaited_once()
 
     async def test_generic_error_returns_friendly_message(self):
@@ -275,23 +277,27 @@ class TestQueryErrorHandling:
             raise ValueError("random error")
 
         with patch.object(session, "_query_once", side_effect=mock_query_once):
-            session_id, result = await session.query("test")
+            session_id, result, meta = await session.query("test")
 
         assert session_id is None
         assert "ValueError" in result
         assert "/reset" in result
+        assert meta == {}
 
-    async def test_normal_query_returns_result(self):
-        """正常情况下直接返回 _query_once 的结果。"""
+    async def test_normal_query_returns_result_with_metadata(self):
+        """正常情况下直接返回 _query_once 的结果（含 metadata）。"""
         session = cc._LiveSession("ch1", "/tmp", "")
+        test_meta = {"duration_ms": 500, "model": "opus"}
 
         async def mock_query_once(prompt, resume=None, on_stream=None):
-            return ("sid-ok", "ok result")
+            return ("sid-ok", "ok result", test_meta)
 
         with patch.object(session, "_query_once", side_effect=mock_query_once):
-            result = await session.query("test")
+            sid, text, meta = await session.query("test")
 
-        assert result == ("sid-ok", "ok result")
+        assert sid == "sid-ok"
+        assert text == "ok result"
+        assert meta == test_meta
 
 
 class TestOneShotQuery:

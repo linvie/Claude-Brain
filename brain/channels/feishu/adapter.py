@@ -133,17 +133,17 @@ class FeishuAdapter(ChannelAdapter):
             None, self._client.edit_text, message_id, text
         )
 
-    async def patch_card(self, message_id: str, text: str) -> None:
+    async def patch_card(self, message_id: str, text: str, footer: str | None = None) -> None:
         """更新已发卡片内容（流式输出用）。"""
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
-            None, self._client.patch_card, message_id, text
+            None, self._client.patch_card, message_id, text, footer
         )
 
     async def add_reaction(self, message_id: str) -> str | None:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
-            None, self._client.add_reaction, message_id, "OnIt"
+            None, self._client.add_reaction, message_id, "Typing"
         )
 
     async def remove_reaction(self, message_id: str, reaction_id: str) -> None:

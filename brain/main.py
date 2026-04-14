@@ -404,7 +404,7 @@ async def _run_background_task(incoming, adapter, conn, task_desc: str):  # prag
     async with _BTW_SEMAPHORE:
         workspace = get_workspace(channel_id)
         try:
-            _, result_text = await execute(
+            _, result_text, _meta = await execute(
                 prompt=task_desc,
                 cwd=workspace,
                 channel_id=channel_id,
@@ -431,6 +431,22 @@ async def _run_background_task(incoming, adapter, conn, task_desc: str):  # prag
 # 普通对话处理
 # ---------------------------------------------------------------------------
 
+
+def _build_footer(metadata: dict) -> str | None:
+    """从 execute() 返回的 metadata 构建卡片 footer 文本。"""
+    parts = []
+    duration_ms = metadata.get("duration_ms", 0)
+    if duration_ms:
+        parts.append(f"耗时 {duration_ms / 1000:.0f}s")
+    model = metadata.get("model")
+    if model:
+        parts.append(model)
+    cost = metadata.get("total_cost_usd", 0)
+    if cost:
+        parts.append(f"${cost:.4f}")
+    return " · ".join(parts) if parts else None
+
+
 async def _handle_chat(incoming, adapter, conn):  # pragma: no cover
     """处理普通对话消息：占位卡片 → 流式更新 → 最终结果。"""
     from brain.channels.base import OutgoingMessage
@@ -441,12 +457,16 @@ async def _handle_chat(incoming, adapter, conn):  # pragma: no cover
 
     channel_id = incoming.channel_id
     card_msg_id = None
+    reaction_id = None
 
     try:
+        # 0. Typing reaction（思考指示器）
+        reaction_id = await adapter.add_reaction(incoming.message_id)
+
         # 1. 发送占位卡片（后续流式更新此卡片）
         placeholder = OutgoingMessage(
             channel_id=channel_id,
-            text="思考中...",
+            text="**思考中...**",
             reply_to=incoming.message_id,
         )
         card_msg_id = await adapter.send(placeholder)
@@ -491,7 +511,7 @@ async def _handle_chat(incoming, adapter, conn):  # pragma: no cover
                 await adapter.patch_card(card_msg_id, text + "\n\n_生成中..._")
 
         # 4. 执行 CC（流式）
-        new_session_id, result_text = await execute(
+        new_session_id, result_text, metadata = await execute(
             prompt=incoming.text,
             cwd=workspace,
             channel_id=channel_id,
@@ -503,17 +523,28 @@ async def _handle_chat(incoming, adapter, conn):  # pragma: no cover
         if new_session_id:
             save_session(conn, channel_id, new_session_id)
 
-        # 5. 最终更新卡片为完整结果
+        # 5. 最终更新卡片为完整结果（含 footer 元信息）
         final_text = result_text if result_text else "⚠️ CC 未返回结果（可能 context 超限）。请尝试 /reset 开新会话。"
+        footer = _build_footer(metadata) if metadata else None
         if card_msg_id:
-            await adapter.patch_card(card_msg_id, final_text)
+            await adapter.patch_card(card_msg_id, final_text, footer=footer)
 
-        # 6. 提取记忆
+        # 6. 移除 typing reaction
+        if reaction_id:
+            await adapter.remove_reaction(incoming.message_id, reaction_id)
+            reaction_id = None
+
+        # 7. 提取记忆
         if result_text:
             extract_and_store(conn, result_text, source=f"channel:{channel_id}")
 
     except Exception:
         log_feishu.exception("处理消息异常: channel=%s", channel_id)
+        try:
+            if reaction_id:
+                await adapter.remove_reaction(incoming.message_id, reaction_id)
+        except Exception:
+            pass
         try:
             if card_msg_id:
                 await adapter.patch_card(card_msg_id, "处理消息时发生错误，请稍后重试。")

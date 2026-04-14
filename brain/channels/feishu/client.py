@@ -21,44 +21,46 @@ from brain.infra.logger import log_feishu as log
 
 
 def _optimize_markdown(text: str) -> str:
-    """适配飞书卡片 markdown 渲染的限制。
+    """适配飞书卡片 schema 2.0 markdown 渲染。
 
-    飞书卡片 markdown 支持：**加粗** *斜体* ~~删除线~~ `代码` 代码块 - 列表 [链接](url)
-    不支持：## 标题、| 表格 |、> 引用、图片
+    schema 2.0 支持：标题、表格、引用、加粗、斜体、删除线、代码、列表、链接
+    仍不支持：HTML 标签（details/summary）
     """
     import re
 
-    # HTML 标签
+    # HTML 标签（飞书卡片仍不支持）
     text = text.replace("<details>", "").replace("</details>", "")
     text = text.replace("<summary>", "**").replace("</summary>", "**\n")
 
-    # ## 标题 → **加粗**（飞书不支持 # 标题语法）
-    text = re.sub(r"^#{1,6}\s+(.+)$", r"**\1**", text, flags=re.MULTILINE)
+    # 标题降级：H2~H6 → H5，H1 → H4（顺序重要：先匹配多 # 的）
+    text = re.sub(r"^#{2,6} (.+)$", r"##### \1", text, flags=re.MULTILINE)
+    text = re.sub(r"^# (.+)$", r"#### \1", text, flags=re.MULTILINE)
 
-    # > 引用 → 去掉 > 前缀（飞书部分版本不支持）
-    text = re.sub(r"^>\s?", "", text, flags=re.MULTILINE)
+    # 引用、表格：schema 2.0 原生支持，保留不转换
 
-    # 表格 → 转为列表格式（飞书卡片不支持表格）
+    return text
+
+
+def _table_to_list(text: str) -> str:
+    """将 markdown 表格转为列表格式（用于表格渲染失败时降级）。"""
+    import re
+
     lines = text.split("\n")
     result = []
-    table_headers = []
+    table_headers: list[str] = []
     in_table = False
 
     for line in lines:
         stripped = line.strip()
-        # 检测表格分隔行 |---|---|
         if re.match(r"^\|[\s\-:|]+\|$", stripped):
             in_table = True
             continue
-        # 检测表格行 | x | y |
         if stripped.startswith("|") and stripped.endswith("|"):
             cells = [c.strip() for c in stripped.strip("|").split("|")]
             if not in_table:
-                # 表头行
                 table_headers = cells
                 in_table = True
             else:
-                # 数据行 → 转为 "- key: value" 列表
                 if table_headers and len(table_headers) == len(cells):
                     parts = [f"{h}: {c}" for h, c in zip(table_headers, cells) if c]
                     result.append("- " + " | ".join(parts))
@@ -66,7 +68,6 @@ def _optimize_markdown(text: str) -> str:
                     result.append("- " + " | ".join(cells))
             continue
 
-        # 非表格行
         if in_table:
             in_table = False
             table_headers = []
@@ -104,44 +105,43 @@ class FeishuClient:
         )
 
     @staticmethod
-    def _build_card(text: str, title: str | None = None) -> str:
-        """将 markdown 文本包装为飞书 Interactive Card JSON。
-
-        飞书 markdown 限制：
-        - 单个 markdown 元素最大 10000 字符
-        - 不支持 HTML 标签
-        - 表格支持有限，过宽会截断
-        """
-        # 飞书 markdown 适配
+    def _build_card(text: str, title: str | None = None, footer: str | None = None) -> str:
+        """将 markdown 文本包装为飞书 Interactive Card JSON（schema 2.0）。"""
         text = _optimize_markdown(text)
 
         elements = []
 
-        # 标题
         if title:
-            elements.append({
-                "tag": "markdown",
-                "content": f"**{title}**",
-            })
+            elements.append({"tag": "markdown", "content": f"#### {title}"})
             elements.append({"tag": "hr"})
 
-        # 内容（超长时分段，飞书单 markdown 元素限 10000 字符）
         if len(text) <= 9000:
             elements.append({"tag": "markdown", "content": text})
         else:
-            # 按段落分割
-            chunks = _split_markdown(text, 9000)
-            for chunk in chunks:
+            for chunk in _split_markdown(text, 9000):
                 elements.append({"tag": "markdown", "content": chunk})
 
+        if footer:
+            elements.append({"tag": "hr"})
+            elements.append({"tag": "markdown", "content": footer, "text_size": "notation"})
+
         card = {
-            "config": {"update_multi": True},
-            "elements": elements,
+            "schema": "2.0",
+            "config": {"wide_screen_mode": True, "update_multi": True},
+            "body": {"elements": elements},
         }
         return json.dumps(card)
 
-    def send_text(self, chat_id: str, text: str) -> str:
+    @staticmethod
+    def _is_table_error(response) -> bool:
+        """检查是否为表格渲染相关错误（可降级重试）。"""
+        if response.code == 230099:
+            return True
+        return "11310" in str(response.msg or "")
+
+    def send_text(self, chat_id: str, text: str, footer: str | None = None) -> str:
         """发送 markdown 卡片消息，返回 message_id。"""
+        card_content = self._build_card(text, footer=footer)
         request = (
             CreateMessageRequest.builder()
             .receive_id_type("chat_id")
@@ -149,32 +149,39 @@ class FeishuClient:
                 CreateMessageRequestBody.builder()
                 .receive_id(chat_id)
                 .msg_type("interactive")
-                .content(self._build_card(text))
+                .content(card_content)
                 .build()
             )
             .build()
         )
         response = self._client.im.v1.message.create(request)
         if not response.success():
+            if self._is_table_error(response):
+                log.info("表格渲染失败，降级为列表格式重试")
+                return self.send_text(chat_id, _table_to_list(text), footer=footer)
             log.error("飞书发送消息失败: code=%s, msg=%s", response.code, response.msg)
             raise RuntimeError(f"feishu send failed: {response.code} {response.msg}")
         return response.data.message_id
 
-    def reply_text(self, message_id: str, text: str) -> str:
+    def reply_text(self, message_id: str, text: str, footer: str | None = None) -> str:
         """回复 markdown 卡片消息，返回新 message_id。"""
+        card_content = self._build_card(text, footer=footer)
         request = (
             ReplyMessageRequest.builder()
             .message_id(message_id)
             .request_body(
                 ReplyMessageRequestBody.builder()
                 .msg_type("interactive")
-                .content(self._build_card(text))
+                .content(card_content)
                 .build()
             )
             .build()
         )
         response = self._client.im.v1.message.reply(request)
         if not response.success():
+            if self._is_table_error(response):
+                log.info("表格渲染失败，降级为列表格式重试")
+                return self.reply_text(message_id, _table_to_list(text), footer=footer)
             log.error("飞书回复消息失败: code=%s, msg=%s", response.code, response.msg)
             raise RuntimeError(f"feishu reply failed: {response.code} {response.msg}")
         return response.data.message_id
@@ -197,24 +204,29 @@ class FeishuClient:
             log.error("飞书编辑消息失败: code=%s, msg=%s", response.code, response.msg)
             raise RuntimeError(f"feishu edit failed: {response.code} {response.msg}")
 
-    def patch_card(self, message_id: str, text: str) -> None:
+    def patch_card(self, message_id: str, text: str, footer: str | None = None) -> None:
         """更新已发的 interactive card 内容（用于流式输出）。"""
+        card_content = self._build_card(text, footer=footer)
         request = (
             PatchMessageRequest.builder()
             .message_id(message_id)
             .request_body(
                 PatchMessageRequestBody.builder()
-                .content(self._build_card(text))
+                .content(card_content)
                 .build()
             )
             .build()
         )
         response = self._client.im.v1.message.patch(request)
         if not response.success():
+            if self._is_table_error(response):
+                log.info("patch card 表格降级重试: msg_id=%s", message_id)
+                self.patch_card(message_id, _table_to_list(text), footer=footer)
+                return
             log.warning("patch card 失败: code=%s, msg=%s, log_id=%s",
                         response.code, response.msg, response.get_log_id())
 
-    def add_reaction(self, message_id: str, emoji_type: str = "OnIt") -> str | None:
+    def add_reaction(self, message_id: str, emoji_type: str = "Typing") -> str | None:
         """给消息添加 emoji reaction，返回 reaction_id（失败返回 None，不抛异常）。"""
         request = (
             CreateMessageReactionRequest.builder()
