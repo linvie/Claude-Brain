@@ -48,6 +48,14 @@ class TestExecutorTemplate:
         assert skill.exists(), "/test-run skill 应被复制"
         assert "name: test-run" in skill.read_text()
 
+    def test_migrate_skill_copied(self, tmp_path):
+        _install_role_template(tmp_path, "executor")
+        skill = tmp_path / ".claude" / "skills" / "migrate" / "SKILL.md"
+        assert skill.exists(), "/migrate skill 应被复制"
+        content = skill.read_text()
+        assert "name: migrate" in content
+        assert "repo_url" in content
+
     def test_claude_md_copied(self, tmp_path):
         _install_role_template(tmp_path, "executor")
         claude_md = tmp_path / "CLAUDE.md"
@@ -57,6 +65,7 @@ class TestExecutorTemplate:
         assert "项目类型自适应" in content
         assert "可用 Skills" in content
         assert "/qa" in content
+        assert "/migrate" in content
 
 
 class TestPlannerTemplate:

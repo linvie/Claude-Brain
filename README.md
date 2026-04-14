@@ -2,8 +2,9 @@
 
 个人 AI daemon — 后台常驻，调度 Claude Code 执行任务。
 
-- **飞书对话**：实时聊天，流式卡片输出，可操作 Notion
+- **飞书对话**：实时聊天，schema 2.0 流式卡片，Typing 指示器，Footer 元信息
 - **Notion 任务**：异步执行，Planner 拆解 + Executor 实现，结果自动回写
+- **已有项目导入**：`existing` 项目自动迁移，AI 配置智能合并（CLAUDE.md / settings.json / hooks / skills）
 - **双向联动**：飞书中查/建 Notion 任务，Notion 任务完成自动通知飞书
 
 ## 安装
@@ -33,7 +34,7 @@ ccbrain install     # 注册 launchd 后台服务并启动
 直接给 Bot 发消息对话。CC 拥有完整工具能力 + Notion MCP（可读写 Notion）。
 
 **特性：**
-- 流式卡片输出（每 2 秒更新）
+- Schema 2.0 卡片（宽屏、标题降级、原生表格、Typing 指示器、Footer 统计）
 - 持久 session（仅 `/reset` 时归档，平时永远 resume）
 - 自动 context 压缩（70% 阈值）+ 三层错误自愈
 - v1 任务完成/阻塞自动通知到飞书
@@ -61,6 +62,9 @@ Pending → Ready → Running → Done / Blocked
 - `task_type = planner`：需求拆解为子任务
 - `task_type = executor`：代码实现
 - `task_type = tester`：生成测试环境
+- `project_type = existing`：自动创建迁移任务（clone/copy + AI 配置合并）
+
+**Executor 内置 Skills**：`/qa`（质量检查）、`/review`（代码审查）、`/test-run`（跑测试）、`/migrate`（项目迁移）
 
 详细设置 → [brain/docs/notion.md](brain/docs/notion.md)
 

@@ -23,6 +23,12 @@ def init_db(conn: sqlite3.Connection):
             workspace_path TEXT NOT NULL,
             last_active    INTEGER
         );
+
+        CREATE TABLE IF NOT EXISTS setup_tasks (
+            project_id     TEXT PRIMARY KEY,
+            task_id        TEXT NOT NULL,
+            created_at     INTEGER DEFAULT (strftime('%%s', 'now'))
+        );
         """
     )
     conn.commit()

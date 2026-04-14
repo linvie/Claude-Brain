@@ -37,6 +37,26 @@ Token 获取：https://www.notion.so/profile/integrations → 创建 Integration
 
 ## 使用流程
 
+### 新建项目
+
+1. 在 Project 数据库创建项目（`project_type = new`，`status = Active`）
+2. 创建 Task：`task_type = executor`，写 description，`status = Ready`
+3. Brain 自动拾取并在空 workspace 中执行
+
+### 导入已有项目（v0.6+）
+
+1. 在 Project 数据库创建项目（`project_type = existing`，`status = Active`，填 `repo_url`）
+   - `repo_url` 支持 GitHub URL（`https://github.com/...`）或本地路径（`/Users/xxx/code/...`）
+2. Brain 首次分发时**自动创建迁移任务**（`项目迁移：<项目名>`，status=Ready）
+3. Executor 使用 `/migrate` skill 完成源码复制 + AI 配置合并
+4. 迁移任务完成后，后续 Task 在已有代码基础上工作
+
+迁移任务自动处理：
+- GitHub URL → `git clone`，本地路径 → `cp -r`
+- `CLAUDE.md`：项目原有内容保留，Brain 规则以 `CCBRAIN:BEGIN/END` 标记追加
+- `.claude/settings.json`：permissions 取并集，hooks 追加合并
+- `.claude/skills/` 和 `hooks/`：并存不覆盖
+
 ### 直接执行（任务明确）
 
 1. 在 Project 数据库创建项目（`status = Active`，填 `repo_url`）

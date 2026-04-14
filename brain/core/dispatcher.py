@@ -9,6 +9,7 @@ from brain.infra.db import all_done, project_has_running_task
 from brain.infra.logger import log_scheduler
 from brain.integrations.notion import (
     append_log,
+    create_task,
     get_page_body,
     get_project_info,
     get_related_tasks,
@@ -16,6 +17,59 @@ from brain.integrations.notion import (
 )
 from brain.workspace.manager import prepare_workspace
 from brain.workspace.setup import setup_workspace
+
+
+def _ensure_setup_task(conn: sqlite3.Connection, project_id: str, project_info: dict):  # pragma: no cover
+    """existing 项目首次分发时自动创建 setup（迁移）task。
+
+    - 仅 project_type=existing 且有 repo_url 时触发
+    - 用 SQLite 记录已创建，避免重复
+    """
+    project_type = project_info.get("project_type")
+    repo_url = project_info.get("repo_url")
+    if project_type != "existing" or not repo_url:
+        return
+
+    # 检查是否已创建过
+    row = conn.execute(
+        "SELECT 1 FROM setup_tasks WHERE project_id = ?", (project_id,)
+    ).fetchone()
+    if row:
+        return
+
+    project_name = project_info.get("project_name", project_id[:8])
+    description = (
+        f"## 做什么\n"
+        f"将 existing 项目源码迁移到 Brain workspace，合并 AI 配置。\n\n"
+        f"## 验收标准\n"
+        f"- [ ] 源码完整复制到 workspace\n"
+        f"- [ ] CLAUDE.md 合并（项目原有内容 + Brain executor 规则）\n"
+        f"- [ ] .claude/settings.json 合并（permissions 并集）\n"
+        f"- [ ] 项目能通过基础验证（lint/build/test）\n\n"
+        f"## 验证方式\n"
+        f"- 检查关键文件存在\n"
+        f"- 运行项目测试或构建命令\n\n"
+        f"## 迁移源\n"
+        f"repo_url: {repo_url}\n"
+        f"使用 `/migrate` skill 执行迁移。"
+    )
+    task_id = create_task(
+        project_id,
+        f"项目迁移：{project_name}",
+        description,
+        task_type="executor",
+        priority="High",
+        status="Ready",
+    )
+    if task_id:
+        conn.execute(
+            "INSERT INTO setup_tasks (project_id, task_id) VALUES (?, ?)",
+            (project_id, task_id),
+        )
+        conn.commit()
+        log_scheduler.info(
+            "自动创建迁移任务: project=%s, task=%s", project_id, task_id
+        )
 
 
 def dispatch(conn: sqlite3.Connection, task: dict):
@@ -57,8 +111,9 @@ def dispatch(conn: sqlite3.Connection, task: dict):
         log_scheduler.info("Tester 快捷启动: task=%s, PID=%d", task_id, pid)
         return
 
-    # 4. 获取项目上下文并构建 inbox
+    # 4. 获取项目上下文；existing 项目自动创建迁移任务
     project_info = get_project_info(project_id)
+    _ensure_setup_task(conn, project_id, project_info)
     related_tasks = get_related_tasks(project_id)
     task["body"] = get_page_body(task_id)
     project_body = get_page_body(project_id)

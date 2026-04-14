@@ -75,7 +75,7 @@ class NotionClient:
     def get_project_info(self, project_id: str) -> dict:
         """获取项目描述等信息供 inbox 上下文使用。
 
-        返回 dict 包含 project_name, project_description, repo_url。
+        返回 dict 包含 project_name, project_description, repo_url, project_type。
         """
         log.info("获取项目上下文信息: project=%s", project_id)
         try:
@@ -85,10 +85,11 @@ class NotionClient:
                 "project_name": self._extract_title(props.get("project_name", {})),
                 "project_description": self._extract_rich_text(props.get("description", {})),
                 "repo_url": self._extract_url(props.get("repo_url", {})),
+                "project_type": self._extract_select(props.get("project_type", {})),
             }
         except requests.HTTPError as e:
             log.warning("获取项目信息失败: project=%s, error=%s", project_id, e)
-            return {"project_name": "", "project_description": "", "repo_url": None}
+            return {"project_name": "", "project_description": "", "repo_url": None, "project_type": None}
 
     def get_related_tasks(self, project_id: str) -> list[dict]:
         """获取同项目其他任务摘要，供 inbox 上下文使用。"""
@@ -150,6 +151,32 @@ class NotionClient:
         )
         resp.raise_for_status()
         log.debug("状态更新成功: task=%s → %s", task_id, status)
+
+    def create_task(self, project_id: str, task_name: str, description: str,  # pragma: no cover
+                    task_type: str = "executor", priority: str = "High",
+                    status: str = "Pending") -> str | None:
+        """在 Task 数据库创建一个新任务，返回 page_id。"""
+        log.info("创建任务: project=%s, name=%s, type=%s", project_id, task_name, task_type)
+        payload = {
+            "parent": {"database_id": self.task_db_id},
+            "properties": {
+                "task_name": {"title": [{"text": {"content": task_name}}]},
+                "description": {"rich_text": [{"text": {"content": description}}]},
+                "task_type": {"select": {"name": task_type}},
+                "project": {"relation": [{"id": project_id}]},
+                "status": {"select": {"name": status}},
+                "priority": {"select": {"name": priority}},
+            },
+        }
+        resp = requests.post(
+            f"{API_BASE}/pages",
+            headers=self.headers,
+            json=payload,
+        )
+        resp.raise_for_status()
+        page_id = resp.json()["id"]
+        log.info("任务创建成功: task=%s, page_id=%s", task_name, page_id)
+        return page_id
 
     def append_execution_log(self, task_id: str, entry: str):
         """向 Task 的 execution_log rich_text 属性追加一行日志。"""
@@ -362,6 +389,15 @@ def get_page_body(page_id: str) -> str:
     except Exception as e:
         log.error("读取页面正文失败: page=%s, error=%s", page_id, e)
         return ""
+
+
+def create_task(project_id: str, task_name: str, description: str, **kwargs) -> str | None:  # pragma: no cover
+    """在 Notion Task 数据库创建任务，返回 page_id。"""
+    try:
+        return _client.create_task(project_id, task_name, description, **kwargs)
+    except Exception as e:
+        log.error("创建任务失败: project=%s, name=%s, error=%s", project_id, task_name, e)
+        return None
 
 
 def get_task_status(task_id: str) -> str | None:

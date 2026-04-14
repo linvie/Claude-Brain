@@ -115,6 +115,7 @@ Brain 为执行任务预装了以下 skills，调用方式：消息中输入 `/s
 - `/qa` — 跨语言自动化质量检查（lint + test + build），输出结构化报告
 - `/review` — 审查 staged changes 或 commit range，按 CRITICAL/WARNING/SUGGESTION 分级
 - `/test-run` — 快速跑测试（不做 lint），适合开发迭代
+- `/migrate` — 将 existing 项目源码迁移到 workspace，处理 AI 配置合并（仅迁移任务使用）
 
 **使用时机**：
 - 完成一个功能点 → `/test-run` 确认无回归
