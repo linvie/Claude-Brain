@@ -65,6 +65,25 @@ def _init_v2_tables(conn: sqlite3.Connection):
     from brain.session.manager import init_session_tables
     init_session_tables(conn)
     init_memory_tables(conn)
+    _init_memory_sessions(conn)
+
+
+def _init_memory_sessions(conn: sqlite3.Connection):
+    """创建 memory_sessions 表（记忆系统 Phase B: Raw Ledger 追踪）。"""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS memory_sessions (
+            session_id    TEXT PRIMARY KEY,
+            channel_id    TEXT NOT NULL,
+            opened_at     INTEGER NOT NULL,
+            closed_at     INTEGER,
+            jsonl_path    TEXT,
+            summarized_at INTEGER,
+            message_count INTEGER DEFAULT 0
+        )
+        """
+    )
+    conn.commit()
 
 
 def has_running_tasks(conn: sqlite3.Connection) -> bool:

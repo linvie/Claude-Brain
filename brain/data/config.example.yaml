@@ -71,6 +71,17 @@ session:
   idle_timeout: 600        # 空闲多久后 hibernate（秒），默认 10 分钟
   max_age: 604800          # session 最大存活时间（秒），默认 7 天
 
+# ── 记忆系统 ──
+memory:
+  enabled: true              # 记忆系统总开关
+  extraction_model: "claude-haiku-4-5-20251001"  # 记忆提取使用的模型
+  ledger_dir: "~/.ccbrain/memory/ledger"   # JSONL 归档目录
+  views_dir: "~/.ccbrain/memory/views"     # 每日摘要目录
+  decay_half_life_days: 30   # 时间衰减半衰期（天）
+  always_on_threshold: 8     # importance >= 此值的记忆始终注入
+  max_context_tokens: 2000   # 注入记忆的 token 上限
+  views_interval_hours: 6    # 每日摘要检查间隔（小时）
+
 # ── 日志 ──
 logging:
   level: DEBUG             # 文件日志级别（控制台固定 INFO）
