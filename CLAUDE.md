@@ -38,9 +38,12 @@
 | `brain/channels/feishu/client.py` | 飞书 API 客户端（发送/回复/编辑消息） |
 | `brain/executor/cc.py` | Claude Agent SDK 封装（query + resume） |
 | `brain/session/manager.py` | Session 生命周期（channel→session 映射 + 过期管理） |
-| `brain/memory/store.py` | 记忆 SQLite CRUD |
-| `brain/memory/retriever.py` | 记忆检索 + context 组装 |
-| `brain/memory/extractor.py` | 从 CC 输出提取记忆（Phase A: 规则匹配） |
+| `brain/memory/store.py` | 记忆 SQLite CRUD + FTS5 全文索引 |
+| `brain/memory/retriever.py` | Context Bridge：三层检索 + 时间衰减 + context 注入 |
+| `brain/memory/extractor.py` | LLM 记忆提取（Haiku，替代 Phase A 正则） |
+| `brain/memory/ledger.py` | Raw Ledger：session JSONL 归档管理 |
+| `brain/memory/views.py` | Daily Views：每日摘要生成（Haiku） |
+| `brain/memory/_llm.py` | Haiku API 封装（AsyncAnthropic，自动重试） |
 
 ### 共享
 
@@ -130,12 +133,36 @@ Executor CC 在 feature branch 上工作，完成后通过 `gh pr create` 创建
 
 ## v2: 记忆系统
 
-Brain-owned 记忆系统，独立于 CC 的 per-project 记忆。
+Brain-owned 记忆系统（Phase B），独立于 CC 的 per-project 记忆。
 
-- 存储：SQLite `memories` 表
-- 检索：关键词匹配 content + tags，按 importance + recency 排序
-- 注入：通过 `--append-system-prompt` 将相关记忆注入 CC context
-- 提取：Phase A 用规则匹配从 CC 输出提取事实（后续升级为 LLM 提取或 MCP tools）
+### 记忆生命周期
+
+```
+Session open → memory_sessions INSERT (opened_at)
+  ↓
+Message flow → message_count++, build_memory_context() 注入 system prompt
+  ↓
+Session close → SDK JSONL 归档到 ledger/ → memory_sessions UPDATE (closed_at, jsonl_path)
+  ↓
+异步提取 → Haiku 从 JSONL 提取 TYPE|IMPORTANCE|CONTENT → 写入 memories 表
+  ↓
+定时任务 → Daily Views 生成每日摘要 markdown（每 6h 检查）
+```
+
+### 核心组件
+
+- **存储**：SQLite `memories` 表（含 `scope` 字段）+ `memory_sessions` 表（session 生命周期追踪）
+- **FTS5 索引**：trigram tokenizer 支持中英文全文搜索，INSERT/UPDATE/DELETE 触发器自动同步
+- **Context Bridge（retriever.py）**：三层检索策略
+  1. Always-on：importance >= 8，始终注入（top 5）
+  2. Relevance：FTS5 MATCH 全文搜索（top 10）
+  3. Recent：最近 7 天 + scope 过滤（top 5）
+  - 去重 + Ebbinghaus 时间衰减评分 + token 截断
+- **LLM 提取（extractor.py）**：session 关闭后，Haiku 从 JSONL 提取结构化记忆（替代 Phase A 正则）
+- **Raw Ledger（ledger.py）**：SDK JSONL 归档到 `~/.ccbrain/memory/ledger/`，供提取和审计
+- **Daily Views（views.py）**：Haiku 生成每日摘要到 `~/.ccbrain/memory/views/{YYYY-MM-DD}.md`
+- **Haiku 封装（_llm.py）**：AsyncAnthropic 单例客户端，自动重试 429/5xx
+- **注入**：通过 `--append-system-prompt` 将检索结果注入 CC context
 
 ## 远程开发模式
 
