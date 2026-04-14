@@ -1,19 +1,69 @@
 {
   "permissions": {
     "allow": [
-      "Read",
-      "Write",
+      "Bash",
+      "Bash(claude mcp *)",
+      "Bash(git *)",
+      "Bash(ls *)",
+      "Bash(mkdir *)",
+      "Bash(pip *)",
+      "Bash(pytest *)",
+      "Bash(python *)",
+      "Bash(python3:*)",
+      "Bash(ruff *)",
+      "Bash(uv *)",
       "Edit",
       "Glob",
       "Grep",
-      "Bash(git *)",
-      "Bash(python *)",
-      "Bash(pip *)",
-      "Bash(ls *)",
-      "Bash(mkdir *)",
-      "Bash(claude mcp *)",
+      "MultiEdit",
+      "Read",
+      "Write",
       "mcp__notion__*"
     ],
     "deny": []
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/hooks/pre-commit-detect.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/hooks/pre-commit-lint.sh",
+            "if": "Bash(git commit *)"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/hooks/anchor-test.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash $CLAUDE_PROJECT_DIR/.claude/hooks/anchor-test.sh"
+          }
+        ]
+      }
+    ]
   }
 }
