@@ -91,6 +91,40 @@ class NotionClient:
             log.warning("获取项目信息失败: project=%s, error=%s", project_id, e)
             return {"project_name": "", "project_description": "", "repo_url": None, "project_type": None}
 
+    def query_active_existing_projects(self) -> list[dict]:
+        """查询 Project 数据库中 status=Active, project_type=existing 的项目。
+
+        返回 [{project_id, project_name, repo_url, project_type}, ...]。
+        """
+        log.info("查询 Active existing 项目: db=%s", self.project_db_id)
+        payload = {
+            "filter": {
+                "and": [
+                    {"property": "status", "select": {"equals": "Active"}},
+                    {"property": "project_type", "select": {"equals": "existing"}},
+                ],
+            },
+        }
+        resp = requests.post(
+            f"{API_BASE}/databases/{self.project_db_id}/query",
+            headers=self.headers,
+            json=payload,
+        )
+        resp.raise_for_status()
+        pages = resp.json().get("results", [])
+        log.info("查询完成，返回 %d 个 Active existing 项目", len(pages))
+
+        projects = []
+        for page in pages:
+            props = page.get("properties", {})
+            projects.append({
+                "project_id": page["id"],
+                "project_name": self._extract_title(props.get("project_name", {})),
+                "repo_url": self._extract_url(props.get("repo_url", {})),
+                "project_type": "existing",
+            })
+        return projects
+
     def get_related_tasks(self, project_id: str) -> list[dict]:
         """获取同项目其他任务摘要，供 inbox 上下文使用。"""
         log.info("获取关联任务: project=%s", project_id)
@@ -407,3 +441,12 @@ def get_task_status(task_id: str) -> str | None:
     except Exception as e:
         log.error("查询任务状态失败: task=%s, error=%s", task_id, e)
         return None
+
+
+def list_active_existing_projects() -> list[dict]:
+    """查询所有 Active 且 project_type=existing 的项目。"""
+    try:
+        return _client.query_active_existing_projects()
+    except Exception as e:
+        log.error("查询 Active existing 项目失败: %s", e)
+        return []

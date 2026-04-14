@@ -19,8 +19,8 @@ from brain.workspace.manager import prepare_workspace
 from brain.workspace.setup import setup_workspace
 
 
-def _ensure_setup_task(conn: sqlite3.Connection, project_id: str, project_info: dict):  # pragma: no cover
-    """existing 项目首次分发时自动创建 setup（迁移）task。
+def ensure_setup_task(conn: sqlite3.Connection, project_id: str, project_info: dict):  # pragma: no cover
+    """existing 项目自动创建 setup（迁移）task。
 
     - 仅 project_type=existing 且有 repo_url 时触发
     - 用 SQLite 记录已创建，避免重复
@@ -111,9 +111,8 @@ def dispatch(conn: sqlite3.Connection, task: dict):
         log_scheduler.info("Tester 快捷启动: task=%s, PID=%d", task_id, pid)
         return
 
-    # 4. 获取项目上下文；existing 项目自动创建迁移任务
+    # 4. 获取项目上下文
     project_info = get_project_info(project_id)
-    _ensure_setup_task(conn, project_id, project_info)
     related_tasks = get_related_tasks(project_id)
     task["body"] = get_page_body(task_id)
     project_body = get_page_body(project_id)

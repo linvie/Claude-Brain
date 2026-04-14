@@ -20,13 +20,13 @@ from brain.config import (
     NOTION_TASK_DB_ID,
     WORKSPACE_BASE,
 )
-from brain.core.dispatcher import dispatch
+from brain.core.dispatcher import dispatch, ensure_setup_task
 from brain.core.outbox import check_all_outboxes
 from brain.core.tester import check_tester_stops
 from brain.core.watchdog import watchdog
 from brain.infra.db import get_db, running_task_count
 from brain.infra.logger import log, log_feishu, log_scheduler
-from brain.integrations.notion import fetch_ready_tasks
+from brain.integrations.notion import fetch_ready_tasks, list_active_existing_projects
 
 _shutdown_event: asyncio.Event | None = None
 
@@ -71,6 +71,13 @@ async def _notion_poll_loop(conn, shutdown: asyncio.Event):  # pragma: no cover
         if running_after < running_before:
             last_task_done_time = time.time()
             log.info("[notion] 检测到任务完成，进入 cooldown 轮询模式")
+
+        # existing 项目自动创建迁移任务（独立于任务分发，解决鸡生蛋问题）
+        try:
+            for proj in list_active_existing_projects():
+                ensure_setup_task(conn, proj["project_id"], proj)
+        except Exception:
+            log_scheduler.exception("检查 existing 项目迁移任务失败")
 
         if running_after < MAX_CONCURRENT:
             ready_tasks = fetch_ready_tasks()
