@@ -102,9 +102,11 @@ class _LiveSession:
     async def _disconnect(self):
         """断开连接，释放 CC 进程。"""
         if self.client and self._connected:
-            # Phase B: 归档 JSONL + 更新 memory_sessions
+            # Phase B: 归档 JSONL + 更新 memory_sessions + 异步提取
             if MEMORY_ENABLED and self.session_id:
-                self._record_session_close()
+                jsonl_path = self._record_session_close()
+                if jsonl_path:
+                    asyncio.create_task(self._async_extract(jsonl_path))
 
             try:
                 await self.client.disconnect()
@@ -137,18 +139,19 @@ class _LiveSession:
         except Exception:
             log_cc.debug("记录 session open 失败（忽略）: channel=%s", self.channel_id)
 
-    def _record_session_close(self):
-        """归档 JSONL + UPDATE memory_sessions。"""
+    def _record_session_close(self) -> Path | None:
+        """归档 JSONL + UPDATE memory_sessions。返回归档后的 JSONL 路径。"""
         try:
             from brain.infra.db import get_db
             from brain.memory.ledger import archive_session_jsonl
 
             sdk_jsonl = self._find_sdk_jsonl()
             jsonl_path: str | None = None
+            archived_path: Path | None = None
             if sdk_jsonl:
-                archived = archive_session_jsonl(self.session_id, sdk_jsonl)
-                if archived:
-                    jsonl_path = str(archived)
+                archived_path = archive_session_jsonl(self.session_id, sdk_jsonl)
+                if archived_path:
+                    jsonl_path = str(archived_path)
 
             conn = get_db()
             conn.execute(
@@ -163,8 +166,28 @@ class _LiveSession:
             conn.commit()
             log_cc.info("session close 已记录: channel=%s, jsonl=%s",
                         self.channel_id, jsonl_path)
+            return archived_path
         except Exception:
             log_cc.debug("记录 session close 失败（忽略）: channel=%s", self.channel_id)
+            return None
+
+    async def _async_extract(self, jsonl_path: Path):
+        """后台异步提取记忆（不阻塞 disconnect 流程）。"""
+        try:
+            from brain.infra.db import get_db
+            from brain.memory.extractor import extract_from_session
+
+            conn = get_db()
+            count = await extract_from_session(
+                conn=conn,
+                session_id=self.session_id or self.channel_id,
+                jsonl_path=jsonl_path,
+                channel_id=self.channel_id,
+            )
+            if count > 0:
+                log_cc.info("异步记忆提取完成: channel=%s, %d 条", self.channel_id, count)
+        except Exception:
+            log_cc.debug("异步记忆提取失败（忽略）: channel=%s", self.channel_id)
 
     def _record_message_count(self):
         """message_count++ for the active memory_session."""
