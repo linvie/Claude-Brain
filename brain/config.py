@@ -71,6 +71,9 @@ SESSION_MAX_AGE = _session_cfg.get("max_age", 604800)
 
 # v2: 记忆配置
 _memory_cfg = CONFIG.get("memory", {})
+MEMORY_ENABLED = _memory_cfg.get("enabled", True)
+MEMORY_LEDGER_DIR = Path(_memory_cfg.get("ledger_dir", "~/.ccbrain/memory/ledger")).expanduser()
+MEMORY_VIEWS_DIR = Path(_memory_cfg.get("views_dir", "~/.ccbrain/memory/views")).expanduser()
 MEMORY_DECAY_HALF_LIFE = _memory_cfg.get("decay_half_life_days", 30)
 MEMORY_ALWAYS_ON_THRESHOLD = _memory_cfg.get("always_on_threshold", 8)
 MEMORY_MAX_CONTEXT_TOKENS = _memory_cfg.get("max_context_tokens", 2000)

@@ -72,6 +72,9 @@ session:
 
 # ── 记忆系统 ──
 memory:
+  enabled: true              # 记忆系统总开关
+  ledger_dir: "~/.ccbrain/memory/ledger"   # JSONL 归档目录
+  views_dir: "~/.ccbrain/memory/views"     # 每日摘要目录
   decay_half_life_days: 30   # 时间衰减半衰期（天）
   always_on_threshold: 8     # importance >= 此值的记忆始终注入
   max_context_tokens: 2000   # 注入记忆的 token 上限

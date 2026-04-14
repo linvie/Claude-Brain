@@ -82,3 +82,16 @@ class TestConfigDefaults:
         assert MAX_CONCURRENT > 0
         assert MAX_TASK_DURATION > 0
         assert SESSION_IDLE_TIMEOUT > 0
+
+    def test_memory_config_defaults(self):
+        """记忆系统配置常量应有合理默认值。"""
+        from brain.config import (
+            MEMORY_ENABLED,
+            MEMORY_LEDGER_DIR,
+            MEMORY_VIEWS_DIR,
+        )
+        assert MEMORY_ENABLED is True
+        assert MEMORY_LEDGER_DIR.name == "ledger"
+        assert "memory" in str(MEMORY_LEDGER_DIR)
+        assert MEMORY_VIEWS_DIR.name == "views"
+        assert "memory" in str(MEMORY_VIEWS_DIR)

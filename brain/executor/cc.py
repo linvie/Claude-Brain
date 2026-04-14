@@ -21,7 +21,7 @@ from claude_agent_sdk import (
     TextBlock,
 )
 
-from brain.config import SESSION_IDLE_TIMEOUT
+from brain.config import MEMORY_ENABLED, SESSION_IDLE_TIMEOUT
 from brain.infra.logger import log_cc
 
 # channel_id → _LiveSession
@@ -95,9 +95,17 @@ class _LiveSession:
         log_cc.info("CC 已连接: channel=%s, cwd=%s, resume=%s",
                     self.channel_id, self.cwd, resume)
 
+        # Phase B: 记录 session 开始
+        if MEMORY_ENABLED:
+            self._record_session_open()
+
     async def _disconnect(self):
         """断开连接，释放 CC 进程。"""
         if self.client and self._connected:
+            # Phase B: 归档 JSONL + 更新 memory_sessions
+            if MEMORY_ENABLED and self.session_id:
+                self._record_session_close()
+
             try:
                 await self.client.disconnect()
             except Exception:
@@ -112,6 +120,81 @@ class _LiveSession:
             if self._connected and time.time() - self.last_activity > SESSION_IDLE_TIMEOUT:
                 await self._disconnect()
                 return
+
+    # ── Phase B: memory_sessions 追踪 ──
+
+    def _record_session_open(self):
+        """INSERT memory_sessions 记录 session 开始。"""
+        try:
+            from brain.infra.db import get_db
+            conn = get_db()
+            conn.execute(
+                "INSERT OR IGNORE INTO memory_sessions "
+                "(session_id, channel_id, opened_at) VALUES (?, ?, ?)",
+                (f"{self.channel_id}:{int(time.time())}", self.channel_id, int(time.time())),
+            )
+            conn.commit()
+        except Exception:
+            log_cc.debug("记录 session open 失败（忽略）: channel=%s", self.channel_id)
+
+    def _record_session_close(self):
+        """归档 JSONL + UPDATE memory_sessions。"""
+        try:
+            from brain.infra.db import get_db
+            from brain.memory.ledger import archive_session_jsonl
+
+            sdk_jsonl = self._find_sdk_jsonl()
+            jsonl_path: str | None = None
+            if sdk_jsonl:
+                archived = archive_session_jsonl(self.session_id, sdk_jsonl)
+                if archived:
+                    jsonl_path = str(archived)
+
+            conn = get_db()
+            conn.execute(
+                "UPDATE memory_sessions SET closed_at = ?, jsonl_path = ? "
+                "WHERE session_id = ("
+                "  SELECT session_id FROM memory_sessions "
+                "  WHERE channel_id = ? AND closed_at IS NULL "
+                "  ORDER BY opened_at DESC LIMIT 1"
+                ")",
+                (int(time.time()), jsonl_path, self.channel_id),
+            )
+            conn.commit()
+            log_cc.info("session close 已记录: channel=%s, jsonl=%s",
+                        self.channel_id, jsonl_path)
+        except Exception:
+            log_cc.debug("记录 session close 失败（忽略）: channel=%s", self.channel_id)
+
+    def _record_message_count(self):
+        """message_count++ for the active memory_session."""
+        try:
+            from brain.infra.db import get_db
+            conn = get_db()
+            conn.execute(
+                "UPDATE memory_sessions SET message_count = message_count + 1 "
+                "WHERE session_id = ("
+                "  SELECT session_id FROM memory_sessions "
+                "  WHERE channel_id = ? AND closed_at IS NULL "
+                "  ORDER BY opened_at DESC LIMIT 1"
+                ")",
+                (self.channel_id,),
+            )
+            conn.commit()
+        except Exception:
+            log_cc.debug("message_count++ 失败（忽略）: channel=%s", self.channel_id)
+
+    def _find_sdk_jsonl(self) -> Path | None:
+        """定位 SDK 存储的 session JSONL 文件。
+
+        SDK 路径格式: ~/.claude/projects/{project_hash}/sessions/{session_id}.jsonl
+        project_hash = cwd 绝对路径中 '/' 替换为 '-'（去掉首 '/'）
+        """
+        if not self.session_id:
+            return None
+        project_hash = str(self.cwd.resolve()).replace("/", "-").lstrip("-")
+        jsonl = Path.home() / ".claude" / "projects" / project_hash / "sessions" / f"{self.session_id}.jsonl"
+        return jsonl if jsonl.exists() else None
 
     async def query(
         self,
@@ -228,6 +311,11 @@ class _LiveSession:
 
         self.session_id = session_id
         self.last_activity = time.time()
+
+        # Phase B: message_count++
+        if MEMORY_ENABLED and session_id:
+            self._record_message_count()
+
         return session_id, result_text, metadata
 
     async def _fallback_query(
