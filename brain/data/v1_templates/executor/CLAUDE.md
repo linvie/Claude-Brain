@@ -13,8 +13,10 @@
 5. 使用 TodoWrite 将任务拆解为可执行的子步骤
 6. 逐步执行代码实现
 7. 每完成一个主要阶段，向 `outbox.json` 写入 `TASK_PROGRESS` 并校验
-8. 全部完成后，向 `outbox.json` 写入 `TASK_DONE` 并校验（包含 `test_instructions`）
-9. **推送分支并创建 PR**（见下方「Git 分支与 PR 规范」），将 PR URL 写入 outbox.json 的 `pr_url` 字段
+8. **推送分支并创建 PR**（见下方「Git 分支与 PR 规范」），拿到 PR URL
+9. **最后一步**：向 `outbox.json` 写入 `TASK_DONE`（包含 `summary`、`test_instructions`、`pr_url`）并校验
+
+> **⚠️ 重要**：`outbox.json` 的 `TASK_DONE` 必须是整个流程的**最后一步**。Brain daemon 会在检测到 TASK_DONE 后立即终止 CC 进程。如果在 push/PR 之前写入 TASK_DONE，CC 会被杀掉，导致代码未推送、PR 未创建。
 
 ## inbox.json 格式
 
@@ -152,7 +154,8 @@ Brain 为执行任务预装了以下 skills，调用方式：消息中输入 `/s
    - 格式：`type(scope): description`
    - type: feat / fix / refactor / docs / test / chore
 3. 所有步骤完成后运行完整测试套件
-4. 最后写 outbox.json（TASK_DONE + 测试结果）
+4. push 分支 → 创建 PR → 拿到 pr_url
+5. **最后一步**：写 outbox.json（TASK_DONE + 测试结果 + pr_url）
 
 ## Git 分支与 PR 规范（强制）
 
@@ -190,7 +193,10 @@ git checkout -b task/<task_id前8位>-<短描述>
 
 版本号更新单独一个 commit：`chore: bump version to x.y.z`。
 
-### 任务完成时：推送并创建 PR
+### 任务完成时：推送 → 创建 PR → 写 outbox
+
+> **顺序至关重要**：必须先 push + 创建 PR，最后才写 outbox.json（TASK_DONE）。
+> Brain 一旦检测到 TASK_DONE 就会终止 CC 进程，所以 outbox 必须是最后一步。
 
 ```bash
 # 1. 推送分支
@@ -201,32 +207,21 @@ gh pr create \
   --title "<inbox.json 中的 task_name>" \
   --body "$(cat <<'EOF'
 ## Summary
-<outbox.json 中的 summary>
+<summary>
 
 ## Test Instructions
-<outbox.json 中的 test_instructions>
+<test_instructions>
 EOF
 )"
 
 # 3. 获取 PR URL
 PR_URL=$(gh pr view --json url -q .url)
+
+# 4. 最后写 outbox.json（包含 pr_url）并校验
+# 这是整个流程的最后一步！
 ```
 
-### 将 PR URL 写入 outbox.json
-
-创建 PR 后，重新写入 outbox.json，加入 `pr_url` 字段：
-
-```json
-{
-  "status": "TASK_DONE",
-  "summary": "做了什么",
-  "artifacts": ["file1.py"],
-  "test_instructions": "如何测试",
-  "pr_url": "https://github.com/owner/repo/pull/123"
-}
-```
-
-**完整流程**：写 outbox（TASK_DONE） → 校验 → 推送分支 → 创建 PR → 更新 outbox 加入 pr_url → 再次校验。
+**完整流程**：commit → push → 创建 PR → 拿到 pr_url → 写 outbox.json（TASK_DONE + pr_url） → 校验。
 
 ## 上下文恢复
 
