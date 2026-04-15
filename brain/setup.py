@@ -227,9 +227,24 @@ def _setup_feishu(config: dict) -> bool:  # pragma: no cover
         config.setdefault("feishu", {})["enabled"] = False
         return False
 
+    # 平台选择
+    current_platform = config.get("feishu", {}).get("platform", "feishu")
     print()
-    print("  需要在飞书开发者后台创建应用：")
-    print("    1. 前往 https://open.feishu.cn/app → 创建企业自建应用")
+    print("  请选择平台:")
+    print("    1) 飞书（open.feishu.cn）")
+    print("    2) Lark 国际版（open.larksuite.com）")
+    default_choice = "2" if current_platform == "lark" else "1"
+    choice = _ask("选择 [1/2]", default=default_choice)
+    platform = "lark" if choice.strip() == "2" else "feishu"
+    config.setdefault("feishu", {})["platform"] = platform
+
+    console_url = (
+        "https://open.larksuite.com/app" if platform == "lark"
+        else "https://open.feishu.cn/app"
+    )
+    print()
+    print("  需要在开发者后台创建应用：")
+    print(f"    1. 前往 {console_url} → 创建企业自建应用")
     print("    2. 启用「机器人」能力")
     print("    3. 订阅事件 im.message.receive_v1")
     print("    4. 接收方式选择「使用长连接接收事件」")
@@ -252,6 +267,7 @@ def _setup_feishu(config: dict) -> bool:  # pragma: no cover
 
     feishu_cfg = config.setdefault("feishu", {})
     feishu_cfg["enabled"] = True
+    feishu_cfg["platform"] = platform
     feishu_cfg["app_id"] = app_id
     feishu_cfg["app_secret"] = app_secret
 

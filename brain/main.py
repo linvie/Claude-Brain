@@ -12,6 +12,7 @@ from brain.config import (
     FEISHU_APP_ID,
     FEISHU_APP_SECRET,
     FEISHU_ENABLED,
+    FEISHU_PLATFORM,
     IDLE_INTERVAL,
     MAX_CONCURRENT,
     MAX_TASK_DURATION,
@@ -667,6 +668,7 @@ async def main():  # pragma: no cover
         feishu_adapter = FeishuAdapter(
             FEISHU_APP_ID, FEISHU_APP_SECRET,
             allowed_users=FEISHU_ALLOWED_USERS or None,
+            platform=FEISHU_PLATFORM,
         )
         feishu_adapter.on_message(
             lambda msg: _dispatch_message(msg, feishu_adapter, conn)
