@@ -296,12 +296,12 @@ class TestExtractionToRetrievalE2E:
         assert "SQLite" in ctx
         assert "FTS5" in ctx  # high importance, always-on
 
-        # 7. 验证 summarized_at 被更新
+        # 7. 验证 extracted_at 被更新
         sess = conn.execute(
-            "SELECT summarized_at FROM memory_sessions WHERE session_id = ?",
+            "SELECT extracted_at FROM memory_sessions WHERE session_id = ?",
             (session_id,),
         ).fetchone()
-        assert sess["summarized_at"] is not None
+        assert sess["extracted_at"] is not None
 
 
 # ── 5. Daily Views Integration ──
@@ -354,12 +354,12 @@ class TestDailyViewsIntegration:
         assert "FTS5" in content
         assert "Haiku" in content
 
-        # 验证 session 被标记为已摘要
+        # 验证 session 被标记为 view 已生成
         sess = conn.execute(
-            "SELECT summarized_at FROM memory_sessions WHERE session_id = ?",
+            "SELECT view_generated_at FROM memory_sessions WHERE session_id = ?",
             (session_id,),
         ).fetchone()
-        assert sess["summarized_at"] is not None
+        assert sess["view_generated_at"] is not None
 
     async def test_run_daily_views_job_multiple_dates(self, tmp_path):
         conn = _make_conn()
@@ -377,11 +377,11 @@ class TestDailyViewsIntegration:
              patch.object(views_mod, "haiku_complete", new=AsyncMock(return_value=haiku_output)):
             await views_mod.run_daily_views_job(conn)
 
-        # 两个 session 都应被标记为已摘要
-        unsummarized = conn.execute(
-            "SELECT COUNT(*) as cnt FROM memory_sessions WHERE summarized_at IS NULL"
+        # 两个 session 都应被标记为 view 已生成
+        no_view = conn.execute(
+            "SELECT COUNT(*) as cnt FROM memory_sessions WHERE view_generated_at IS NULL"
         ).fetchone()
-        assert unsummarized["cnt"] == 0
+        assert no_view["cnt"] == 0
 
     async def test_no_sessions_returns_none(self):
         conn = _make_conn()

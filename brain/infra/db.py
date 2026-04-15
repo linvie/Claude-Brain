@@ -73,16 +73,34 @@ def _init_memory_sessions(conn: sqlite3.Connection):
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS memory_sessions (
-            session_id    TEXT PRIMARY KEY,
-            channel_id    TEXT NOT NULL,
-            opened_at     INTEGER NOT NULL,
-            closed_at     INTEGER,
-            jsonl_path    TEXT,
-            summarized_at INTEGER,
-            message_count INTEGER DEFAULT 0
+            session_id      TEXT PRIMARY KEY,
+            channel_id      TEXT NOT NULL,
+            opened_at       INTEGER NOT NULL,
+            closed_at       INTEGER,
+            jsonl_path      TEXT,
+            summarized_at   INTEGER,
+            extracted_at    INTEGER,
+            view_generated_at INTEGER,
+            message_count   INTEGER DEFAULT 0
         )
         """
     )
+    conn.commit()
+    _migrate_memory_sessions(conn)
+
+
+def _migrate_memory_sessions(conn: sqlite3.Connection):
+    """增量迁移 memory_sessions：添加 extracted_at, view_generated_at 列。"""
+    existing = {
+        row[1] for row in conn.execute("PRAGMA table_info(memory_sessions)").fetchall()
+    }
+    new_columns = {
+        "extracted_at": "INTEGER",
+        "view_generated_at": "INTEGER",
+    }
+    for col, col_type in new_columns.items():
+        if col not in existing:
+            conn.execute(f"ALTER TABLE memory_sessions ADD COLUMN {col} {col_type}")
     conn.commit()
 
 

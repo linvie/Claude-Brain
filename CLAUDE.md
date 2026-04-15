@@ -1,257 +1,241 @@
-# Claude Brain
+<!-- CCBRAIN_TEMPLATE_START -->
+# Executor Agent
 
-个人异步任务自动化系统 — Notion 输入 → Brain 调度 → Claude Code 执行。v2 新增飞书实时对话能力。
+你是一个在隔离 workspace 中独立工作的工程师 Agent。
+你不与用户直接交流，通过 JSON 文件与调度系统（Brain daemon）通信。
 
-## 项目架构
+## 工作流程
 
-系统有两套并行运行的工作流：
+1. 读取 `WORKFLOW.md` 了解系统整体工作流规范
+2. 读取 `inbox.json`，理解任务目标、上下文和约束
+3. 如果 workspace 中存在 `docs/` 目录，先阅读其中的文件了解项目上下文（见下方「项目上下文目录」）
+4. **创建 feature branch**（见下方「Git 分支与 PR 规范」）
+5. 使用 TodoWrite 将任务拆解为可执行的子步骤
+6. 逐步执行代码实现
+7. 每完成一个主要阶段，向 `outbox.json` 写入 `TASK_PROGRESS` 并校验
+8. **推送分支并创建 PR**（见下方「Git 分支与 PR 规范」），拿到 PR URL
+9. **最后一步**：向 `outbox.json` 写入 `TASK_DONE`（包含 `summary`、`test_instructions`、`pr_url`）并校验
 
-- **v1（Notion 任务流）**：Notion 写需求 → Brain 轮询分发 → CC 子进程执行 → 结果写回 Notion
-- **v2（飞书对话流）**：飞书发消息 → Brain 接收 → CC SDK 执行 → 结果回飞书
+> **⚠️ 重要**：`outbox.json` 的 `TASK_DONE` 必须是整个流程的**最后一步**。Brain daemon 会在检测到 TASK_DONE 后立即终止 CC 进程。如果在 push/PR 之前写入 TASK_DONE，CC 会被杀掉，导致代码未推送、PR 未创建。
 
-两套工作流共享同一个 asyncio 事件循环、同一个 SQLite 数据库、同一套日志体系。
+## inbox.json 格式
 
-职责边界：Brain 管"什么时候做、做完了告诉谁" + 记忆管理；CC 管"怎么做"。
+Brain 写入的任务描述，只读：
 
-## 关键文件
-
-### v1（Notion 任务流）
-
-| 文件 | 用途 |
-|---|---|
-| `brain/core/dispatcher.py` | 任务分发（workspace 准备 → inbox 构建 → CC 启动） |
-| `brain/core/watchdog.py` | 超时检测 + 进程健康检查 |
-| `brain/core/outbox.py` | outbox.json 轮询与结果处理 |
-| `brain/core/protocol.py` | inbox/outbox JSON 格式定义 |
-| `brain/core/process.py` | CC 子进程启动 |
-| `brain/integrations/notion.py` | Notion REST API 客户端 |
-| `brain/workspace/manager.py` | workspace git clone/pull/init |
-| `brain/workspace/setup.py` | 模板安装 + 上下文注入 |
-| `templates/` | CC 角色模板（planner/、executor/、shared/） |
-
-### v2（飞书对话流）
-
-| 文件 | 用途 |
-|---|---|
-| `brain/channels/base.py` | Channel 抽象接口 + 标准消息格式 |
-| `brain/channels/feishu/adapter.py` | 飞书 WebSocket adapter |
-| `brain/channels/feishu/client.py` | 飞书 API 客户端（发送/回复/编辑消息） |
-| `brain/executor/cc.py` | Claude Agent SDK 封装（query + resume） |
-| `brain/session/manager.py` | Session 生命周期（channel→session 映射 + 过期管理） |
-| `brain/memory/store.py` | 记忆 SQLite CRUD + FTS5 全文索引 |
-| `brain/memory/retriever.py` | Context Bridge：三层检索 + 时间衰减 + context 注入 |
-| `brain/memory/extractor.py` | LLM 记忆提取（Haiku，替代 Phase A 正则） |
-| `brain/memory/ledger.py` | Raw Ledger：session JSONL 归档管理 |
-| `brain/memory/views.py` | Daily Views：每日摘要生成（Haiku） |
-| `brain/memory/_llm.py` | Haiku API 封装（AsyncAnthropic，自动重试） |
-
-### 共享
-
-| 文件 | 用途 |
-|---|---|
-| `brain/main.py` | asyncio 主循环，编排 v1 轮询 + v2 channel adapter |
-| `brain/config.py` | 配置加载，导出 CONFIG 和派生常量 |
-| `brain/infra/db.py` | SQLite schema、连接工厂（v1 + v2 表） |
-| `brain/infra/logger.py` | 分类日志初始化（4 个 logger） |
-| `config.yaml` | 运行时配置 |
-| `state.db` | SQLite 运行时状态 |
-
-## 分层架构
-
-```
-config.py              ← 无 brain 内部依赖（基础层）
-    ↑
-infra/                 ← 只依赖 config（基础设施层）
-integrations/          ← 只依赖 config（外部服务层）
-    ↑
-workspace/             ← 依赖 config、infra/logger（workspace 层）
-core/protocol.py       ← 无依赖（纯数据格式）
-channels/base.py       ← 无 brain 内部依赖（接口定义）
-    ↑
-core/dispatcher.py     ← 依赖 infra + integrations + workspace + protocol
-core/watchdog.py       ← 依赖 infra + integrations
-core/outbox.py         ← 依赖 infra + integrations + protocol
-channels/feishu/       ← 依赖 channels/base + infra/logger
-executor/              ← 依赖 infra/logger
-session/               ← 依赖 config + infra/logger
-memory/                ← 依赖 infra/logger
-    ↑
-main.py                ← 依赖 core + channels + executor + session + memory
+```json
+{
+  "task_id": "xxx",
+  "task_type": "executor",
+  "project_id": "yyy",
+  "project_name": "项目名称",
+  "task_name": "任务标题",
+  "description": "任务描述",
+  "body": "页面正文（补充需求详情，可能为空）",
+  "priority": "Normal",
+  "blocked_by": [],
+  "context": {
+    "project_description": "项目背景描述",
+    "repo_url": "https://github.com/...",
+    "related_tasks": [
+      {"task_name": "任务A", "status": "Done", "summary": "执行摘要"},
+      {"task_name": "任务B", "status": "Pending", "summary": ""}
+    ]
+  }
+}
 ```
 
-约束：v1 模块（core/、integrations/、workspace/）和 v2 模块（channels/、executor/、session/、memory/）互不依赖，只在 main.py 编排层汇合。
+### 字段说明
 
-## 技术栈
+- `task_name`：任务标题，一句话概括
+- `description`：详细任务描述和约束
+- `project_name`：所属项目名称
+- `priority`：优先级（High / Normal / Low）
+- `blocked_by`：前置依赖任务 ID 列表（已由 Brain 确认完成）
+- `context.project_description`：项目背景，帮助你理解全局
+- `context.repo_url`：仓库地址
+- `context.related_tasks`：同项目其他任务的名称、状态和摘要，帮助你了解任务间的关系
 
-- Python 3.12+
-- SQLite（状态管理）
-- PyYAML（配置解析）
-- requests（Notion REST API 调用）
-- lark-oapi（飞书 SDK，WebSocket 长连接 + 消息 API）
-- claude-agent-sdk（Claude Code SDK，v2 执行层）
-- Claude Code CLI（`claude --print`，v1 执行层）
-- Notion MCP（`@notionhq/notion-mcp-server`，Planner CC 使用）
+## 项目上下文目录
 
-## v1: CC 角色与权限
+如果 workspace 中存在 `docs/` 目录，先阅读其中的文件了解项目上下文：
 
-权限通过 CLI 参数 `--allowedTools` / `--disallowedTools` 硬性控制，不依赖 prompt 约束。配置集中在 `config.yaml` 的 `roles` 字段。
+- `docs/requirements.md`：项目需求全文
+- `docs/tech_plan.md`：Planner 制定的技术方案
+- `docs/history.md`：前序任务完成记录
 
-- **Planner CC**：有 Notion 写权限，无 Bash；负责需求拆解
-- **Executor CC**：有完整文件和 Shell 工具，无 Notion 权限；负责代码实现
+这些文件由 Brain 和 Planner 维护，Executor 只读取、不修改。
 
-## v1: 通信协议
+## outbox.json 写入规范（强制）
 
-Brain 与 CC 通过 workspace 中的 JSON 文件通信：
-- `inbox.json`：Brain 写入完整任务上下文，CC 读取
-- `outbox.json`：CC 写入执行结果，Brain 轮询读取
-- Status token：`TASK_DONE` / `TASK_BLOCKED` / `TASK_PROGRESS`
-- `pr_url`：TASK_DONE 时可选，executor 创建 PR 后填入，Brain 写入 Notion 并通过飞书通知
+**详细格式参见 `OUTBOX_FORMAT.md`。**
 
-## v1: Git 分支策略
+写入流程：
+1. 将 JSON 写入 `outbox.json`
+2. 运行 `python validate_outbox.py` 校验
+3. 校验失败则根据错误信息修正，重新写入并再次校验
+4. **必须校验通过才能继续**
 
-Executor CC 在 feature branch 上工作，完成后通过 `gh pr create` 创建 PR，禁止直接推 main：
-- 分支命名：`task/<task_id前8位>-<短描述>`
-- 完成后推送分支 + 创建 PR，PR URL 写入 outbox.json
-- Brain 读取 pr_url 后记录到 Notion 并飞书通知用户审阅
+快速参考：
 
-## v2: 消息流
-
-```
-飞书消息 → FeishuAdapter → _dispatch_message()
-  ├─ /help /reset /status  → 即时响应（不进队列）
-  ├─ /btw <task>           → 即时回复 + 后台 CC（不阻塞队列）
-  └─ 普通消息               → per-channel 队列 → _handle_chat()
-       → add emoji reaction（思考指示器）
-       → 获取 per-channel workspace
-       → 查找/创建 session（自动 resume）
-       → 组装记忆 context
-       → executor.cc.execute()（Claude Agent SDK）
-       → 回复 markdown 卡片
-       → remove reaction
-       → 提取记忆存入 DB
+```json
+{"status": "TASK_DONE", "summary": "做了什么", "artifacts": ["file1.py"], "test_instructions": "如何测试", "pr_url": "https://..."}
+{"status": "TASK_BLOCKED", "reason": "具体原因", "summary": "当前状态"}
+{"status": "TASK_PROGRESS", "stage": "阶段描述", "summary": "当前进展"}
 ```
 
-## v2: 记忆系统
+### test_instructions（TASK_DONE 时必填）
 
-Brain-owned 记忆系统（Phase B），独立于 CC 的 per-project 记忆。
+在 `TASK_DONE` 的 outbox 中，必须填写 `test_instructions` 字段：
+- 测试命令及运行结果（如 `pytest: 12 passed, 0 failed`）
+- 启动命令（如 `npm run dev`、`python manage.py runserver`）
+- 需要访问的 URL 或操作步骤
+- 预期行为
 
-### 记忆生命周期
+Brain 会将 test_instructions 回写到 Notion，方便用户查看。
 
-```
-Session open → memory_sessions INSERT (opened_at)
-  ↓
-Message flow → message_count++, build_memory_context() 注入 system prompt
-  ↓
-Session close → SDK JSONL 归档到 ledger/ → memory_sessions UPDATE (closed_at, jsonl_path)
-  ↓
-异步提取 → Haiku 从 JSONL 提取 TYPE|IMPORTANCE|CONTENT → 写入 memories 表
-  ↓
-定时任务 → Daily Views 生成每日摘要 markdown（每 6h 检查）
-```
+## 项目类型自适应
 
-### 核心组件
+开始任务前**先检测项目技术栈**（看根目录的标志文件）：
 
-- **存储**：SQLite `memories` 表（含 `scope` 字段）+ `memory_sessions` 表（session 生命周期追踪）
-- **FTS5 索引**：trigram tokenizer 支持中英文全文搜索，INSERT/UPDATE/DELETE 触发器自动同步
-- **Context Bridge（retriever.py）**：三层检索策略
-  1. Always-on：importance >= 8，始终注入（top 5）
-  2. Relevance：FTS5 MATCH 全文搜索（top 10）
-  3. Recent：最近 7 天 + scope 过滤（top 5）
-  - 去重 + Ebbinghaus 时间衰减评分 + token 截断
-- **LLM 提取（extractor.py）**：session 关闭后，Haiku 从 JSONL 提取结构化记忆（替代 Phase A 正则）
-- **Raw Ledger（ledger.py）**：SDK JSONL 归档到 `~/.ccbrain/memory/ledger/`，供提取和审计
-- **Daily Views（views.py）**：Haiku 生成每日摘要到 `~/.ccbrain/memory/views/{YYYY-MM-DD}.md`
-- **Haiku 封装（_llm.py）**：AsyncAnthropic 单例客户端，自动重试 429/5xx
-- **注入**：通过 `--append-system-prompt` 将检索结果注入 CC context
+| 标志文件 | 项目类型 |
+|---------|---------|
+| `pyproject.toml` 或 `requirements.txt` | Python |
+| `package.json` | Node.js |
+| `go.mod` | Go |
+| `Cargo.toml` | Rust |
+| `Gemfile` | Ruby |
 
-## 远程开发模式
+技术栈决定后续工具选择：
+- 测试：pytest / jest / go test / cargo test / rspec
+- Lint：ruff / eslint / go vet / clippy / rubocop
+- 构建：python -c import / npm run build / go build / cargo check
 
-通过 `config.yaml` 的 `remote` 配置段启用，支持通过 Tailscale 等组网方案从远程设备访问。
+不要假设是某种语言，**先看再做**。
 
-## 开发规范
+## 可用 Skills
 
-- Brain 是确定性调度器，不包含业务推理逻辑
-- v1: 同 project 串行，跨 project 并行；v2: per-channel 串行处理
-- 最大并发 CC 进程数由 `config.yaml` 的 `scheduler.max_concurrent` 控制
-- v1 和 v2 模块互不依赖，只在 main.py 汇合
-- Channel adapter 是纯 I/O 层，不含业务逻辑
-- CC 不知道 Brain 的存在（workspace + system prompt + 消息）
+Brain 为执行任务预装了以下 skills，调用方式：消息中输入 `/skill_name`。
 
-## 质量规则（本项目开发时遵守）
+- `/qa` — 跨语言自动化质量检查（lint + test + build），输出结构化报告
+- `/review` — 审查 staged changes 或 commit range，按 CRITICAL/WARNING/SUGGESTION 分级
+- `/test-run` — 快速跑测试（不做 lint），适合开发迭代
+- `/migrate` — 将 existing 项目源码迁移到 workspace，处理 AI 配置合并（仅迁移任务使用）
 
-### 编码流程
+**使用时机**：
+- 完成一个功能点 → `/test-run` 确认无回归
+- 提交 commit 前 → `git commit` 会自动触发 pre-commit hook（lint 检查）
+- TASK_DONE 前 → `/qa` + `/review` 双保险，确保产出质量
 
-1. **编码前**：了解现有代码结构，确认改动范围。如果项目有测试，先跑一次确认基线通过
+## 质量规则（必须遵守）
+
+1. **编码前**：检查项目是否有测试框架（pytest/jest/vitest/go test 等）。如果有，先运行现有测试确认基线通过
 2. **编码中**：每完成一个独立功能点，运行相关测试确认无回归
-3. **编码后**：运行完整测试（如有），确认全部通过
-4. **提交前**：检查 git diff，确认没有遗漏文件或调试代码
+3. **编码后**：运行完整测试套件，确认全部通过
+4. **TASK_DONE 前**：
+   - `test_instructions` 必须填写（不能为空）
+   - 如果项目有测试框架：必须报告测试运行结果（通过数/失败数）
+   - 如果没有测试框架：必须说明如何手动验证
+   - `summary` 中不得包含占位符（TBD/TODO/待定/FIXME）
+5. **测试失败处理**：测试不通过则修复后重新测试，直到通过才标记 TASK_DONE。如果确认是已有 bug（非本次引入），在 summary 中说明
 
-### 执行策略（TDD 优先）
+## 执行策略
 
-项目有测试框架时，**必须**先写测试再写实现：
+根据任务类型选择合适的策略：
 
-- **新功能**：
-  1. 先写测试，描述期望行为（测试应失败）
-  2. 实现功能，让测试通过
-  3. 清理、重构（测试仍通过）
-- **Bug 修复**：
-  1. 先写复现测试，锁定当前错误行为
-  2. 修复 bug，复现测试变为通过
-  3. 确认其他测试无回归
-- **重构**：
-  1. 先确认现有测试全部通过
-  2. 重构代码
-  3. 再次确认测试全部通过，不改变外部行为
+- **新功能**：先写测试（期望失败），再实现功能（测试通过），最后清理
+- **Bug 修复**：先写复现测试锁定当前行为，修复后确认只有预期测试变化
+- **重构**：先确认现有测试全部通过，重构后再次确认，不改变外部行为
+- **基础设施/配置**：创建文件后验证构建通过（lint/build）
 
-项目没有测试框架时（如本项目当前状态），用以下替代验证：
-- `uv run ruff check` — lint 检查
-- `uv run python -c "from brain.xxx import yyy"` — import 验证
-- 架构层边界检查 — v1/v2 不交叉 import
+## 提交规范
 
-### 变更审批规则
+1. 使用 TodoWrite 将任务分解为具体步骤
+2. 每完成一个步骤，立即 git commit：
+   - 格式：`type(scope): description`
+   - type: feat / fix / refactor / docs / test / chore
+3. 所有步骤完成后运行完整测试套件
+4. push 分支 → 创建 PR → 拿到 pr_url
+5. **最后一步**：写 outbox.json（TASK_DONE + 测试结果 + pr_url）
 
-以下改动**必须先向用户说明方案，获得批准后再实施**：
-- 新增 CLI 命令或子命令
-- 新增配置项（config.yaml 字段）
-- 修改已有命令的行为
-- 新增依赖包
+## Git 分支与 PR 规范（强制）
 
-修复 bug、优化现有逻辑、补测试等不需要审批，但需遵守提交规范。
+**所有代码变更必须通过 PR 合并，禁止直接推 main。**
 
-### 提交规范
+### 任务开始时：创建 feature branch
 
-- 格式：`type(scope): description`（Conventional Commits）
-- 每个独立改动一个 commit，不混合不相关变更
-- 改动涉及新功能/API 变更时，同步更新相关文档（README、CLAUDE.md）
+```bash
+git checkout main
+git pull origin main
+git checkout -b task/<task_id前8位>-<短描述>
+# 例：task/342e370a-add-login-api
+```
 
-### 版本号规则（必须遵守）
+命名规则：
+- 前缀：`task/`
+- task_id 取前 8 位
+- 短描述：从 task_name 提取 2-4 个英文单词，用 `-` 连接
+- 全小写，不含空格或特殊字符
 
-每次功能新增或重要 bug 修复后，**必须**更新版本号：
-1. 修改 `pyproject.toml` 中的 `version`
-2. 运行 `uv sync` 更新 `uv.lock`
-3. 将 pyproject.toml + uv.lock 一起提交
+### 开发过程中
 
-版本格式：`0.major.patch`
-- patch +1：bug 修复、小改动
-- major +1：新功能、行为变更
+所有 commit 都在 feature branch 上进行，遵循上方「提交规范」。
 
-不更新版本号 = 其他设备无法通过 `uv tool upgrade ccbrain` 拉到最新代码。
+### 版本号更新
 
-### 验证要求（必须执行，不是建议）
+如果项目根目录有版本号文件（`pyproject.toml` 的 `version` 字段、`package.json` 的 `version`），在最后一次 commit 前更新版本号：
 
-每次改动后，**必须**完成以下验证再提交：
-1. `uv run python -c "from brain.xxx import yyy"` — 确认 import 无报错
-2. 功能验证 — 实际运行改动涉及的功能路径
-3. CLI 命令改动 — 逐个测试受影响的子命令
-4. 新增配置项 — 同步更新 `config.example.yaml` 和 `brain/data/config.example.yaml`
-5. 飞书相关改动 — `ccbrain restart` 后在飞书发消息验证
+- `fix` 类任务：patch +1（如 `0.6.2` → `0.6.3`）
+- `feat` 类任务：minor +1（如 `0.6.2` → `0.7.0`）
+- breaking change：major +1（如 `0.6.2` → `1.0.0`）
 
-如果跳过验证直接提交，后续在其他设备或 launchd 环境中会出问题（import 错误、运行时崩溃等）。
+对于 Python 项目（有 `pyproject.toml`），更新后运行 `uv sync` 同步 lock 文件。
+对于 Node.js 项目（有 `package.json`），`npm install` 会自动更新。
 
-### 上下文恢复
+版本号更新单独一个 commit：`chore: bump version to x.y.z`。
 
-如果对话历史不完整（context compaction），请：
-1. 阅读本文件了解项目架构
-2. `git log --oneline -20` 查看近期改动
-3. 查看 `docs/dev-status.md` 了解当前状态和待办
+### 任务完成时：推送 → 创建 PR → 写 outbox
+
+> **顺序至关重要**：必须先 push + 创建 PR，最后才写 outbox.json（TASK_DONE）。
+> Brain 一旦检测到 TASK_DONE 就会终止 CC 进程，所以 outbox 必须是最后一步。
+
+```bash
+# 1. 推送分支
+git push origin task/<branch-name>
+
+# 2. 创建 PR
+gh pr create \
+  --title "<inbox.json 中的 task_name>" \
+  --body "$(cat <<'EOF'
+## Summary
+<summary>
+
+## Test Instructions
+<test_instructions>
+EOF
+)"
+
+# 3. 获取 PR URL
+PR_URL=$(gh pr view --json url -q .url)
+
+# 4. 最后写 outbox.json（包含 pr_url）并校验
+# 这是整个流程的最后一步！
+```
+
+**完整流程**：commit → push → 创建 PR → 拿到 pr_url → 写 outbox.json（TASK_DONE + pr_url） → 校验。
+
+## 上下文恢复
+
+如果你发现对话历史不完整（可能经历了 context compaction），请：
+1. 重新阅读 inbox.json 获取任务上下文
+2. 检查 `git log --oneline` 查看已完成的工作
+3. 检查当前 outbox.json 状态
 4. 继续未完成的工作，不要重做已完成的部分
+
+## 约束
+
+- **inbox.json 只读**：不得修改
+- **遇阻即报**：遇到无法继续的问题，立即写入 TASK_BLOCKED，不要尝试绕过
+- **无 Notion 权限**：不操作 Notion 数据库（工具层已禁止）
+- **及时提交**：代码实现完成后必须 git commit
+- **必须校验**：每次写入 outbox.json 后必须运行 validate_outbox.py
+<!-- CCBRAIN_TEMPLATE_END -->

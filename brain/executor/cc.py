@@ -44,7 +44,8 @@ class _LiveSession:
         self.channel_id = channel_id
         self.cwd = cwd
         self.client: ClaudeSDKClient | None = None
-        self.session_id: str | None = None
+        self.session_id: str | None = None  # SDK session_id (from ResultMessage)
+        self._db_session_id: str | None = None  # DB memory_sessions.session_id
         self.last_activity: float = 0
         self._system_append = system_append
         self._idle_task: asyncio.Task | None = None
@@ -102,18 +103,25 @@ class _LiveSession:
     async def _disconnect(self):
         """断开连接，释放 CC 进程。"""
         if self.client and self._connected:
-            # Phase B: 归档 JSONL + 更新 memory_sessions + 异步提取
-            if MEMORY_ENABLED and self.session_id:
-                jsonl_path = self._record_session_close()
-                if jsonl_path:
-                    asyncio.create_task(self._async_extract(jsonl_path))
-
+            # 先断开 SDK 连接（确保 JSONL 已刷盘）
             try:
                 await self.client.disconnect()
             except Exception:
                 log_cc.debug("CC disconnect 异常（忽略）: channel=%s", self.channel_id)
             self._connected = False
             log_cc.info("CC 已断开: channel=%s, idle 超时", self.channel_id)
+
+            # Phase B: 归档 JSONL + 更新 memory_sessions + 异步提取
+            # 必须在 client.disconnect() 之后，SDK 才会完成 JSONL 写入
+            if MEMORY_ENABLED and self.session_id:
+                jsonl_path = self._record_session_close()
+                if jsonl_path:
+                    asyncio.create_task(self._async_extract(jsonl_path))
+                else:
+                    log_cc.warning(
+                        "session close 未获取 JSONL 路径，跳过记忆提取: channel=%s, session=%s",
+                        self.channel_id, self.session_id,
+                    )
 
     async def _idle_watcher(self):
         """监视 idle 超时，自动断开连接。"""
@@ -130,12 +138,14 @@ class _LiveSession:
         try:
             from brain.infra.db import get_db
             conn = get_db()
+            db_sid = f"{self.channel_id}:{int(time.time())}"
             conn.execute(
                 "INSERT OR IGNORE INTO memory_sessions "
                 "(session_id, channel_id, opened_at) VALUES (?, ?, ?)",
-                (f"{self.channel_id}:{int(time.time())}", self.channel_id, int(time.time())),
+                (db_sid, self.channel_id, int(time.time())),
             )
             conn.commit()
+            self._db_session_id = db_sid
         except Exception:
             log_cc.debug("记录 session open 失败（忽略）: channel=%s", self.channel_id)
 
@@ -178,16 +188,20 @@ class _LiveSession:
             from brain.memory.extractor import extract_from_session
 
             conn = get_db()
+            # 使用 DB session_id（channel_id:timestamp）以便正确标记 extracted_at
+            db_sid = self._db_session_id or self.session_id or self.channel_id
             count = await extract_from_session(
                 conn=conn,
-                session_id=self.session_id or self.channel_id,
+                session_id=db_sid,
                 jsonl_path=jsonl_path,
                 channel_id=self.channel_id,
             )
             if count > 0:
                 log_cc.info("异步记忆提取完成: channel=%s, %d 条", self.channel_id, count)
+            else:
+                log_cc.info("异步记忆提取完成: channel=%s, 无新记忆", self.channel_id)
         except Exception:
-            log_cc.debug("异步记忆提取失败（忽略）: channel=%s", self.channel_id)
+            log_cc.exception("异步记忆提取失败: channel=%s", self.channel_id)
 
     def _record_message_count(self):
         """message_count++ for the active memory_session."""
@@ -214,10 +228,15 @@ class _LiveSession:
         project_hash = cwd 绝对路径中 '/' 替换为 '-'（去掉首 '/'）
         """
         if not self.session_id:
+            log_cc.debug("_find_sdk_jsonl: session_id 为空")
             return None
         project_hash = str(self.cwd.resolve()).replace("/", "-").lstrip("-")
         jsonl = Path.home() / ".claude" / "projects" / project_hash / "sessions" / f"{self.session_id}.jsonl"
-        return jsonl if jsonl.exists() else None
+        if jsonl.exists():
+            log_cc.debug("_find_sdk_jsonl: 找到 %s", jsonl)
+            return jsonl
+        log_cc.warning("_find_sdk_jsonl: JSONL 不存在: %s", jsonl)
+        return None
 
     async def query(
         self,

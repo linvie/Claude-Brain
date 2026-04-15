@@ -53,12 +53,12 @@ async def generate_daily_view(
     if date is None:
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    # 查询当日已关闭但未摘要的 session
+    # 查询当日已关闭但未生成 view 的 session
     sessions = conn.execute(
         """
         SELECT session_id, channel_id, opened_at, closed_at, jsonl_path
         FROM memory_sessions
-        WHERE summarized_at IS NULL
+        WHERE view_generated_at IS NULL
           AND closed_at IS NOT NULL
           AND date(closed_at, 'unixepoch') = ?
         ORDER BY opened_at ASC
@@ -67,17 +67,17 @@ async def generate_daily_view(
     ).fetchall()
 
     if not sessions:
-        log.debug("[views] 日期 %s 无未摘要 session", date)
+        log.debug("[views] 日期 %s 无待生成 view 的 session", date)
         return None
 
-    log.info("[views] 日期 %s: 发现 %d 个未摘要 session", date, len(sessions))
+    log.info("[views] 日期 %s: 发现 %d 个待生成 view 的 session", date, len(sessions))
 
     # 收集各 session 的记忆和元数据
     session_summaries = _collect_session_info(conn, sessions)
 
     if not session_summaries.strip():
         log.info("[views] 日期 %s: 无有效内容可生成摘要", date)
-        _mark_sessions_summarized(conn, sessions)
+        _mark_sessions_view_generated(conn, sessions)
         return None
 
     # 调用 Haiku 生成摘要
@@ -95,8 +95,8 @@ async def generate_daily_view(
     # 写入 markdown 文件
     view_path = _write_view_file(date, raw_output)
 
-    # 标记 session 已摘要
-    _mark_sessions_summarized(conn, sessions)
+    # 标记 session view 已生成
+    _mark_sessions_view_generated(conn, sessions)
 
     log.info("[views] 生成 daily view: %s (%d sessions)", view_path, len(sessions))
     return view_path
@@ -107,19 +107,19 @@ async def run_daily_views_job(conn: sqlite3.Connection):
 
     由 main.py 定时调用。
     """
-    # 查询所有未摘要的日期
+    # 查询所有未生成 view 的日期
     dates = conn.execute(
         """
         SELECT DISTINCT date(closed_at, 'unixepoch') as dt
         FROM memory_sessions
-        WHERE summarized_at IS NULL
+        WHERE view_generated_at IS NULL
           AND closed_at IS NOT NULL
         ORDER BY dt ASC
         """,
     ).fetchall()
 
     if not dates:
-        log.debug("[views] 无待生成的 daily view")
+        log.debug("[views] 无待生成 view 的 session")
         return
 
     generated = 0
@@ -190,11 +190,11 @@ def _write_view_file(date: str, content: str) -> Path:
     return view_path
 
 
-def _mark_sessions_summarized(
+def _mark_sessions_view_generated(
     conn: sqlite3.Connection,
     sessions: list[sqlite3.Row],
 ):
-    """批量标记 session 为已摘要。"""
+    """批量标记 session 的 daily view 已生成。"""
     now = int(time.time())
     session_ids = [s["session_id"] for s in sessions]
     if not session_ids:
@@ -202,10 +202,10 @@ def _mark_sessions_summarized(
     placeholders = ",".join("?" for _ in session_ids)
     try:
         conn.execute(
-            f"UPDATE memory_sessions SET summarized_at = ? "
+            f"UPDATE memory_sessions SET view_generated_at = ? "
             f"WHERE session_id IN ({placeholders})",
             [now, *session_ids],
         )
         conn.commit()
     except Exception:
-        log.exception("[views] 批量更新 summarized_at 失败")
+        log.exception("[views] 批量更新 view_generated_at 失败")
