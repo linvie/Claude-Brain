@@ -7,19 +7,37 @@ import json
 import threading
 import time
 
+import lark_oapi as lark
+
 from brain.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
 from brain.channels.feishu.client import FeishuClient
 from brain.infra.logger import log_feishu as log
 
 
+def _platform_to_domain(platform: str) -> str:
+    """将 platform 字符串转为 lark_oapi 域名。"""
+    if platform == "lark":
+        return lark.LARK_DOMAIN
+    return lark.FEISHU_DOMAIN
+
+
 class FeishuAdapter(ChannelAdapter):
     """飞书 adapter：通过 WebSocket 长连接接收消息，同步 API 发送/编辑消息。"""
 
-    def __init__(self, app_id: str, app_secret: str, allowed_users: list[str] | None = None):
+    def __init__(
+        self,
+        app_id: str,
+        app_secret: str,
+        allowed_users: list[str] | None = None,
+        *,
+        platform: str = "feishu",
+    ):
         super().__init__()
         self._app_id = app_id
         self._app_secret = app_secret
-        self._client = FeishuClient(app_id, app_secret)
+        self._platform = platform
+        self._domain = _platform_to_domain(platform)
+        self._client = FeishuClient(app_id, app_secret, domain=self._domain)
         self._loop: asyncio.AbstractEventLoop | None = None
         self._allowed_users: set[str] | None = set(allowed_users) if allowed_users else None
 
@@ -55,7 +73,7 @@ class FeishuAdapter(ChannelAdapter):
             user_id=sender.sender_id.open_id,
             message_id=msg.message_id,
             text=text,
-            platform="feishu",
+            platform=self._platform,
             timestamp=time.time(),
         )
 
@@ -82,7 +100,6 @@ class FeishuAdapter(ChannelAdapter):
         import lark_oapi.ws.client as ws_mod
         ws_mod.loop = new_loop
 
-        import lark_oapi as lark
         event_handler = (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(self._on_receive)
@@ -95,6 +112,7 @@ class FeishuAdapter(ChannelAdapter):
             self._app_secret,
             event_handler=event_handler,
             log_level=lark.LogLevel.WARNING,
+            domain=self._domain,
         )
 
         log.info("WebSocket 线程启动，正在连接...")

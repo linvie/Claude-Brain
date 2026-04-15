@@ -8,7 +8,11 @@
 """
 
 import json
+from unittest.mock import patch
 
+import lark_oapi as lark
+
+from brain.channels.feishu.adapter import _platform_to_domain
 from brain.channels.feishu.client import (
     FeishuClient,
     _optimize_markdown,
@@ -184,3 +188,80 @@ class TestBuildCard:
         assert "##### 标题" in content
         assert "> 引用" in content
         assert "**" not in content
+
+
+class TestPlatformToDomain:
+    """_platform_to_domain: 平台字符串转换为 lark_oapi 域名。"""
+
+    def test_feishu_platform(self):
+        assert _platform_to_domain("feishu") == lark.FEISHU_DOMAIN
+
+    def test_lark_platform(self):
+        assert _platform_to_domain("lark") == lark.LARK_DOMAIN
+
+    def test_unknown_defaults_to_feishu(self):
+        assert _platform_to_domain("unknown") == lark.FEISHU_DOMAIN
+
+    def test_empty_defaults_to_feishu(self):
+        assert _platform_to_domain("") == lark.FEISHU_DOMAIN
+
+
+class TestFeishuClientDomain:
+    """FeishuClient: domain 参数传递到 lark SDK。"""
+
+    @patch("brain.channels.feishu.client.lark.Client.builder")
+    def test_default_domain_no_extra_call(self, mock_builder):
+        """默认 feishu 域名时不调用 .domain()。"""
+        chain = mock_builder.return_value
+        chain.app_id.return_value = chain
+        chain.app_secret.return_value = chain
+        chain.log_level.return_value = chain
+        chain.build.return_value = "client"
+
+        FeishuClient("id", "secret")
+        chain.domain.assert_not_called()
+
+    @patch("brain.channels.feishu.client.lark.Client.builder")
+    def test_lark_domain_calls_domain(self, mock_builder):
+        """Lark 域名时应调用 .domain()。"""
+        chain = mock_builder.return_value
+        chain.app_id.return_value = chain
+        chain.app_secret.return_value = chain
+        chain.log_level.return_value = chain
+        chain.domain.return_value = chain
+        chain.build.return_value = "client"
+
+        FeishuClient("id", "secret", domain=lark.LARK_DOMAIN)
+        chain.domain.assert_called_once_with(lark.LARK_DOMAIN)
+
+
+class TestFeishuAdapterPlatform:
+    """FeishuAdapter: platform 参数影响域名和 IncomingMessage.platform。"""
+
+    def test_adapter_default_feishu(self):
+        from brain.channels.feishu.adapter import FeishuAdapter
+
+        with patch("brain.channels.feishu.adapter.FeishuClient"):
+            adapter = FeishuAdapter("id", "secret")
+            assert adapter._platform == "feishu"
+            assert adapter._domain == lark.FEISHU_DOMAIN
+
+    def test_adapter_lark_platform(self):
+        from brain.channels.feishu.adapter import FeishuAdapter
+
+        with patch("brain.channels.feishu.adapter.FeishuClient"):
+            adapter = FeishuAdapter("id", "secret", platform="lark")
+            assert adapter._platform == "lark"
+            assert adapter._domain == lark.LARK_DOMAIN
+
+
+class TestFeishuPlatformConfig:
+    """FEISHU_PLATFORM config constant."""
+
+    def test_config_default(self):
+        """默认 platform 为 feishu。"""
+        from brain import config as cfg_mod
+        # FEISHU_PLATFORM should exist and default to "feishu"
+        assert hasattr(cfg_mod, "FEISHU_PLATFORM")
+        # The actual loaded value depends on config.yaml, but the constant exists
+        assert cfg_mod.FEISHU_PLATFORM in ("feishu", "lark")

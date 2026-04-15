@@ -95,14 +95,16 @@ def _split_markdown(text: str, max_len: int) -> list[str]:
 class FeishuClient:
     """飞书 API 客户端，提供消息发送/回复/编辑能力。"""
 
-    def __init__(self, app_id: str, app_secret: str):
-        self._client = (
+    def __init__(self, app_id: str, app_secret: str, *, domain: str = lark.FEISHU_DOMAIN):
+        builder = (
             lark.Client.builder()
             .app_id(app_id)
             .app_secret(app_secret)
             .log_level(lark.LogLevel.WARNING)
-            .build()
         )
+        if domain != lark.FEISHU_DOMAIN:
+            builder = builder.domain(domain)
+        self._client = builder.build()
 
     @staticmethod
     def _build_card(text: str, title: str | None = None, footer: str | None = None) -> str:
