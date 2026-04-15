@@ -21,12 +21,12 @@ def _make_conn():
     return conn
 
 
-def _insert_session(conn, session_id, channel_id, opened_at, closed_at, summarized_at=None):
+def _insert_session(conn, session_id, channel_id, opened_at, closed_at, view_generated_at=None):
     """插入测试 session 记录。"""
     conn.execute(
-        "INSERT INTO memory_sessions (session_id, channel_id, opened_at, closed_at, summarized_at) "
+        "INSERT INTO memory_sessions (session_id, channel_id, opened_at, closed_at, view_generated_at) "
         "VALUES (?, ?, ?, ?, ?)",
-        (session_id, channel_id, opened_at, closed_at, summarized_at),
+        (session_id, channel_id, opened_at, closed_at, view_generated_at),
     )
     conn.commit()
 
@@ -112,7 +112,7 @@ class TestWriteViewFile:
 
 
 # ---------------------------------------------------------------------------
-# _mark_sessions_summarized
+# _mark_sessions_view_generated
 # ---------------------------------------------------------------------------
 
 
@@ -124,18 +124,18 @@ class TestMarkSessionsSummarized:
         _insert_session(conn, "s2", "ch2", ts - 3600, ts - 1800)
 
         sessions = conn.execute("SELECT * FROM memory_sessions").fetchall()
-        views._mark_sessions_summarized(conn, sessions)
+        views._mark_sessions_view_generated(conn, sessions)
 
         for sid in ("s1", "s2"):
             row = conn.execute(
-                "SELECT summarized_at FROM memory_sessions WHERE session_id = ?",
+                "SELECT view_generated_at FROM memory_sessions WHERE session_id = ?",
                 (sid,),
             ).fetchone()
-            assert row["summarized_at"] is not None
+            assert row["view_generated_at"] is not None
 
     def test_empty_list(self):
         conn = _make_conn()
-        views._mark_sessions_summarized(conn, [])  # should not raise
+        views._mark_sessions_view_generated(conn, [])  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +152,7 @@ class TestGenerateDailyView:
     async def test_already_summarized_returns_none(self):
         conn = _make_conn()
         ts = int(datetime(2026, 4, 14, 10, 0, tzinfo=timezone.utc).timestamp())
-        _insert_session(conn, "s1", "ch1", ts, ts + 3600, summarized_at=ts + 7200)
+        _insert_session(conn, "s1", "ch1", ts, ts + 3600, view_generated_at=ts + 7200)
 
         result = await views.generate_daily_view(conn, date="2026-04-14")
         assert result is None
@@ -186,12 +186,12 @@ class TestGenerateDailyView:
         assert "Daily Memory View — 2026-04-14" in content
         assert "Python" in content
 
-        # 验证 summarized_at 被更新
+        # 验证 view_generated_at 被更新
         row = conn.execute(
-            "SELECT summarized_at FROM memory_sessions WHERE session_id = ?",
+            "SELECT view_generated_at FROM memory_sessions WHERE session_id = ?",
             ("s1",),
         ).fetchone()
-        assert row["summarized_at"] is not None
+        assert row["view_generated_at"] is not None
 
     async def test_haiku_empty_output_returns_none(self):
         conn = _make_conn()
@@ -202,12 +202,12 @@ class TestGenerateDailyView:
             result = await views.generate_daily_view(conn, date="2026-04-14")
 
         assert result is None
-        # summarized_at 不应被更新（Haiku 失败，下次重试）
+        # view_generated_at 不应被更新（Haiku 失败，下次重试）
         row = conn.execute(
-            "SELECT summarized_at FROM memory_sessions WHERE session_id = ?",
+            "SELECT view_generated_at FROM memory_sessions WHERE session_id = ?",
             ("s1",),
         ).fetchone()
-        assert row["summarized_at"] is None
+        assert row["view_generated_at"] is None
 
     async def test_default_date_is_today(self):
         conn = _make_conn()
@@ -262,10 +262,10 @@ class TestRunDailyViewsJob:
         # 两个 session 都应标记为已摘要
         for sid in ("s1", "s2"):
             row = conn.execute(
-                "SELECT summarized_at FROM memory_sessions WHERE session_id = ?",
+                "SELECT view_generated_at FROM memory_sessions WHERE session_id = ?",
                 (sid,),
             ).fetchone()
-            assert row["summarized_at"] is not None
+            assert row["view_generated_at"] is not None
 
         # 应该生成两个 view 文件
         view_files = list(tmp_path.glob("*.md"))
@@ -274,7 +274,7 @@ class TestRunDailyViewsJob:
     async def test_skips_already_summarized(self, tmp_path):
         conn = _make_conn()
         ts = int(datetime(2026, 4, 14, 10, 0, tzinfo=timezone.utc).timestamp())
-        _insert_session(conn, "s1", "ch1", ts, ts + 3600, summarized_at=ts + 7200)
+        _insert_session(conn, "s1", "ch1", ts, ts + 3600, view_generated_at=ts + 7200)
 
         mock_haiku = AsyncMock(return_value="should not be called")
         with (
@@ -299,7 +299,7 @@ class TestRunDailyViewsJob:
 
 
 # ---------------------------------------------------------------------------
-# _mark_sessions_summarized exception path
+# _mark_sessions_view_generated exception path
 # ---------------------------------------------------------------------------
 
 
@@ -313,7 +313,7 @@ class TestMarkSessionsSummarizedError:
 
         # 关闭连接制造异常
         conn.close()
-        views._mark_sessions_summarized(conn, sessions)  # should not raise
+        views._mark_sessions_view_generated(conn, sessions)  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +334,7 @@ class TestGenerateDailyViewEmptySummaries:
         assert result is None
         # sessions should be marked summarized
         row = conn.execute(
-            "SELECT summarized_at FROM memory_sessions WHERE session_id = ?",
+            "SELECT view_generated_at FROM memory_sessions WHERE session_id = ?",
             ("s1",),
         ).fetchone()
-        assert row["summarized_at"] is not None
+        assert row["view_generated_at"] is not None

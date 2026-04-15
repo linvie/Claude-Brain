@@ -188,12 +188,12 @@ class TestExtractFromSession:
         assert len(rows) == 2
         assert any("AI daemon" in r["content"] for r in rows)
 
-        # 验证 summarized_at 被更新
+        # 验证 extracted_at 被更新
         sess = conn.execute(
-            "SELECT summarized_at FROM memory_sessions WHERE session_id = ?",
+            "SELECT extracted_at FROM memory_sessions WHERE session_id = ?",
             ("sess-3",),
         ).fetchone()
-        assert sess["summarized_at"] is not None
+        assert sess["extracted_at"] is not None
 
     async def test_haiku_empty_output(self, tmp_path):
         conn = _make_conn()

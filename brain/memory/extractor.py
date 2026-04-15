@@ -59,7 +59,7 @@ async def extract_from_session(
     3. 拼接对话摘要（截断到 ~4000 tokens）
     4. 调用 Haiku 提取 TYPE|IMPORTANCE|CONTENT
     5. 写入 memories 表
-    6. UPDATE memory_sessions SET summarized_at
+    6. UPDATE memory_sessions SET extracted_at
     """
     if not jsonl_path or not jsonl_path.exists():
         log.warning("[extractor] JSONL 不存在: %s", jsonl_path)
@@ -75,7 +75,7 @@ async def extract_from_session(
     turn_count = sum(1 for role, _ in conversation if role == "user")
     if turn_count < _MIN_TURNS:
         log.info("[extractor] 对话过短 (%d 轮), 跳过提取: session=%s", turn_count, session_id)
-        _mark_summarized(conn, session_id)
+        _mark_extracted(conn, session_id)
         return 0
 
     # 3. 拼接对话摘要
@@ -90,14 +90,14 @@ async def extract_from_session(
 
     if not raw_output.strip():
         log.info("[extractor] Haiku 无输出: session=%s", session_id)
-        _mark_summarized(conn, session_id)
+        _mark_extracted(conn, session_id)
         return 0
 
     # 5. 解析并写入
     count = _parse_and_store(conn, raw_output, session_id, channel_id)
 
     # 6. 标记已摘要
-    _mark_summarized(conn, session_id)
+    _mark_extracted(conn, session_id)
 
     log.info("[extractor] 提取完成: session=%s, %d 条记忆", session_id, count)
     return count
@@ -201,21 +201,21 @@ def _parse_and_store(
     return count
 
 
-def _mark_summarized(conn: sqlite3.Connection, session_id: str):
-    """UPDATE memory_sessions SET summarized_at。
+def _mark_extracted(conn: sqlite3.Connection, session_id: str):
+    """UPDATE memory_sessions SET extracted_at。
 
-    session_id 在 memory_sessions 中可能是 channel_id:timestamp 格式，
-    这里用 LIKE 匹配或直接匹配。
+    session_id 来自 cc.py 的 _db_session_id（channel_id:timestamp 格式），
+    直接精确匹配。
     """
     try:
         conn.execute(
-            "UPDATE memory_sessions SET summarized_at = ? "
-            "WHERE session_id = ? OR session_id LIKE ?",
-            (int(time.time()), session_id, f"%{session_id}%"),
+            "UPDATE memory_sessions SET extracted_at = ? "
+            "WHERE session_id = ?",
+            (int(time.time()), session_id),
         )
         conn.commit()
     except Exception:
-        log.debug("[extractor] 更新 summarized_at 失败: session=%s", session_id)
+        log.debug("[extractor] 更新 extracted_at 失败: session=%s", session_id)
 
 
 # ── Phase A 兼容接口 ──

@@ -25,7 +25,8 @@ class TestInitMemorySessions:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(memory_sessions)").fetchall()}
         assert cols == {
             "session_id", "channel_id", "opened_at", "closed_at",
-            "jsonl_path", "summarized_at", "message_count",
+            "jsonl_path", "summarized_at", "extracted_at", "view_generated_at",
+            "message_count",
         }
         conn.close()
 
@@ -50,6 +51,17 @@ class TestRecordSessionOpen:
         assert len(rows) == 1
         assert rows[0]["channel_id"] == "ch-test"
         assert rows[0]["closed_at"] is None
+        conn.close()
+
+    def test_stores_db_session_id(self):
+        session = cc._LiveSession("ch-db", Path("/tmp"), "")
+        conn = _make_conn()
+
+        with patch("brain.infra.db.get_db", return_value=conn):
+            session._record_session_open()
+
+        assert session._db_session_id is not None
+        assert session._db_session_id.startswith("ch-db:")
         conn.close()
 
     def test_does_not_raise_on_error(self):
