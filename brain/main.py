@@ -595,7 +595,11 @@ async def _daily_views_loop(conn, shutdown: asyncio.Event):  # pragma: no cover
 # ---------------------------------------------------------------------------
 
 def _reinit_all_workspaces():  # pragma: no cover
-    """启动时更新所有 workspace 的模板区域（保留用户自定义内容）。"""
+    """启动时更新 v2 workspace 的模板区域（保留用户自定义内容）。
+
+    仅处理 v2（飞书 channel）workspace，跳过 v1（Notion 项目）workspace。
+    v1 workspace 的模板在 dispatcher.setup_workspace() 中按任务安装。
+    """
     from brain.session.manager import update_workspace_template
 
     if not WORKSPACE_BASE.exists():
@@ -605,10 +609,15 @@ def _reinit_all_workspaces():  # pragma: no cover
     if not workspaces:
         return
 
+    updated = 0
     for ws in workspaces:
+        # v1 workspace 有 inbox.json / outbox.json，由 dispatcher 管理模板，跳过
+        if (ws / "inbox.json").exists() or (ws / "outbox.json").exists():
+            continue
         update_workspace_template(ws, ws.name)
+        updated += 1
 
-    log.info("已更新 %d 个 workspace 模板", len(workspaces))
+    log.info("已更新 %d 个 v2 workspace 模板（共 %d 个 workspace）", updated, len(workspaces))
 
 
 # ---------------------------------------------------------------------------
