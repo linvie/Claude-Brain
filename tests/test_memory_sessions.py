@@ -165,10 +165,10 @@ class TestFindSdkJsonl:
         session.session_id = "sid-abc"
 
         cwd_resolved = str(workspace.resolve())
-        project_hash = cwd_resolved.replace("/", "-").lstrip("-")
-        sessions_dir = Path.home() / ".claude" / "projects" / project_hash / "sessions"
-        sessions_dir.mkdir(parents=True, exist_ok=True)
-        jsonl_file = sessions_dir / "sid-abc.jsonl"
+        project_hash = cwd_resolved.replace("/", "-")
+        project_dir = Path.home() / ".claude" / "projects" / project_hash
+        project_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_file = project_dir / "sid-abc.jsonl"
         jsonl_file.write_text('{"data": true}\n')
 
         try:
@@ -176,12 +176,10 @@ class TestFindSdkJsonl:
             assert result == jsonl_file
         finally:
             jsonl_file.unlink(missing_ok=True)
-            # Clean up created dirs
-            for d in [sessions_dir, sessions_dir.parent]:
-                try:
-                    d.rmdir()
-                except OSError:
-                    pass
+            try:
+                project_dir.rmdir()
+            except OSError:
+                pass
 
     def test_returns_none_when_missing(self, tmp_path):
         session = cc._LiveSession("ch1", tmp_path / "workspace", "")
