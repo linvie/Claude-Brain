@@ -224,14 +224,14 @@ class _LiveSession:
     def _find_sdk_jsonl(self) -> Path | None:
         """定位 SDK 存储的 session JSONL 文件。
 
-        SDK 路径格式: ~/.claude/projects/{project_hash}/sessions/{session_id}.jsonl
-        project_hash = cwd 绝对路径中 '/' 替换为 '-'（去掉首 '/'）
+        SDK 路径格式: ~/.claude/projects/{project_hash}/{session_id}.jsonl
+        project_hash = cwd 绝对路径中 '/' 替换为 '-'（保留首 '-'）
         """
         if not self.session_id:
             log_cc.debug("_find_sdk_jsonl: session_id 为空")
             return None
-        project_hash = str(self.cwd.resolve()).replace("/", "-").lstrip("-")
-        jsonl = Path.home() / ".claude" / "projects" / project_hash / "sessions" / f"{self.session_id}.jsonl"
+        project_hash = str(self.cwd.resolve()).replace("/", "-")
+        jsonl = Path.home() / ".claude" / "projects" / project_hash / f"{self.session_id}.jsonl"
         if jsonl.exists():
             log_cc.debug("_find_sdk_jsonl: 找到 %s", jsonl)
             return jsonl
