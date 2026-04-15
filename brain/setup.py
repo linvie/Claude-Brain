@@ -63,17 +63,35 @@ def _apply_config(lines: list[str], config: dict) -> list[str]:
 
     result = []
     current_section = ""
+    seen_keys: set[str] = set()  # track which flat keys were found in the file
+
+    def _flush_missing(section: str):
+        """Append any keys in config[section] that were not found in the file."""
+        if not section or section not in config:
+            return
+        section_vals = config[section]
+        if not isinstance(section_vals, dict):
+            return
+        for key, val in section_vals.items():
+            flat_key = f"{section}.{key}"
+            if flat_key in flat and flat_key not in seen_keys:
+                result.append(f"  {key}: {_yaml_val(val)}")
+                seen_keys.add(flat_key)
+
     for line in lines:
         stripped = line.lstrip()
         if stripped and not stripped.startswith("#") and ":" in stripped and not line.startswith(" "):
             sec_name = stripped.split(":")[0].strip()
             if sec_name in config and isinstance(config.get(sec_name), dict):
+                # Entering a new section — flush missing keys from previous section
+                _flush_missing(current_section)
                 current_section = sec_name
 
         if current_section and stripped and not stripped.startswith("#") and ":" in stripped and line.startswith(" "):
             key_name = stripped.split(":")[0].strip()
             flat_key = f"{current_section}.{key_name}"
             if flat_key in flat:
+                seen_keys.add(flat_key)
                 val = flat[flat_key]
                 indent = line[: len(line) - len(line.lstrip())]
                 comment = ""
@@ -84,6 +102,10 @@ def _apply_config(lines: list[str], config: dict) -> list[str]:
                 continue
 
         result.append(line)
+
+    # Flush missing keys from the last section
+    _flush_missing(current_section)
+
     return result
 
 
