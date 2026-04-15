@@ -68,6 +68,42 @@ class TestApplyConfig:
         result = _apply_config(lines, {"other_key": "value"})
         assert result[0] == 'foo: bar\n'
 
+    def test_appends_missing_key_to_section(self):
+        """Keys in config but not in the YAML file should be appended to the section."""
+        lines = [
+            "feishu:",
+            "  enabled: false",
+            "  app_id: \"\"",
+            "",
+            "session:",
+            "  idle_timeout: 600",
+        ]
+        config = {
+            "feishu": {"enabled": True, "platform": "lark", "app_id": "cli_x"},
+            "session": {"idle_timeout": 600},
+        }
+        result = _apply_config(lines, config)
+        joined = "\n".join(result)
+        assert 'platform: "lark"' in joined
+        # platform should appear between feishu section and session section
+        platform_idx = next(i for i, l in enumerate(result) if "platform" in l)
+        session_idx = next(i for i, l in enumerate(result) if l.strip() == "session:")
+        assert platform_idx < session_idx
+
+    def test_no_duplicate_when_key_exists(self):
+        """If the key already exists in the file, it should be updated, not duplicated."""
+        lines = [
+            "feishu:",
+            "  enabled: false",
+            "  platform: feishu  # comment",
+            "  app_id: \"\"",
+        ]
+        config = {"feishu": {"enabled": True, "platform": "lark", "app_id": "cli_y"}}
+        result = _apply_config(lines, config)
+        platform_lines = [l for l in result if "platform" in l]
+        assert len(platform_lines) == 1
+        assert '"lark"' in platform_lines[0]
+
 
 class TestWriteNotionMcpConfig:
     """_write_notion_mcp_config: 写入 ~/.claude.json。"""
