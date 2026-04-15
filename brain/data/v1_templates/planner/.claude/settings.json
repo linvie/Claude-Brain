@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Write",
+      "Edit",
+      "mcp__notion__*"
+    ],
+    "deny": [
+      "Bash"
+    ]
+  }
+}

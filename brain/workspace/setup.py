@@ -5,9 +5,16 @@ import logging
 import shutil
 from pathlib import Path
 
-from brain.config import CONFIG, FEISHU_ENABLED, FEISHU_NOTIFY_CHAT_ID, SRC_DIR
+from brain.config import CONFIG, FEISHU_ENABLED, FEISHU_NOTIFY_CHAT_ID, RESOURCE_DIR
 
 log_cc = logging.getLogger("brain.cc")
+
+# v1 模板目录（brain/data/v1_templates/）— 打包在 wheel 中
+_V1_TEMPLATE_DIR = RESOURCE_DIR / "v1_templates"
+
+# 标记分区常量（与 session/manager.py 一致）
+_TEMPLATE_START = "<!-- CCBRAIN_TEMPLATE_START -->"
+_TEMPLATE_END = "<!-- CCBRAIN_TEMPLATE_END -->"
 
 
 def setup_workspace(workspace: Path, task_type: str, inbox_data: dict, task: dict, *, project_body: str = ""):
@@ -38,7 +45,7 @@ def setup_workspace(workspace: Path, task_type: str, inbox_data: dict, task: dic
 
 def _install_shared_template(workspace: Path):
     """复制 shared/ 模板（outbox.json、OUTBOX_FORMAT.md、WORKFLOW.md 等）。"""
-    shared_dir = SRC_DIR / "templates" / "shared"
+    shared_dir = _V1_TEMPLATE_DIR / "shared"
     if not shared_dir.exists():
         return
 
@@ -50,8 +57,8 @@ def _install_shared_template(workspace: Path):
 
 
 def _install_role_template(workspace: Path, task_type: str):
-    """复制角色模板（CLAUDE.md、.claude/settings.json 等）。"""
-    role_dir = SRC_DIR / "templates" / task_type
+    """安装角色模板（CLAUDE.md 用标记合并，其他文件直接复制）。"""
+    role_dir = _V1_TEMPLATE_DIR / task_type
     if not role_dir.exists():
         log_cc.error("角色模板目录不存在: %s", role_dir)
         return
@@ -61,8 +68,39 @@ def _install_role_template(workspace: Path, task_type: str):
             rel = src.relative_to(role_dir)
             dest = workspace / rel
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dest)
-            log_cc.debug("复制角色文件: %s → %s", rel, dest)
+            if rel.name == "CLAUDE.md":
+                _merge_claude_md(src, dest)
+            else:
+                shutil.copy2(src, dest)
+            log_cc.debug("安装角色文件: %s → %s", rel, dest)
+
+
+def _merge_claude_md(template_src: Path, dest: Path):
+    """标记合并 CLAUDE.md：替换模板区域，保留用户/CC 自定义内容。"""
+    new_template = template_src.read_text(encoding="utf-8")
+
+    if not dest.exists():
+        dest.write_text(new_template, encoding="utf-8")
+        return
+
+    existing = dest.read_text(encoding="utf-8")
+
+    if _TEMPLATE_START in existing and _TEMPLATE_END in existing:
+        # 替换标记之间的内容，保留标记之后的用户内容
+        before_start = existing.split(_TEMPLATE_START)[0]
+        after_end = existing.split(_TEMPLATE_END)[1]
+        if _TEMPLATE_START in new_template and _TEMPLATE_END in new_template:
+            new_section = new_template[
+                new_template.index(_TEMPLATE_START):new_template.index(_TEMPLATE_END) + len(_TEMPLATE_END)
+            ]
+        else:
+            new_section = new_template
+        result = before_start + new_section + after_end
+    else:
+        # 旧格式（无标记），全部替换为新模板
+        result = new_template
+
+    dest.write_text(result, encoding="utf-8")
 
 
 def _write_inbox(workspace: Path, inbox_data: dict):
