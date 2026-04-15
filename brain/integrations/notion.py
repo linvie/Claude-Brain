@@ -1,6 +1,7 @@
 """Notion REST API 集成 — NotionClient 类 + Brain 调用 wrapper 函数。"""
 
 import logging
+import time
 
 import requests
 
@@ -10,6 +11,38 @@ log = logging.getLogger("brain.notion")
 
 API_BASE = "https://api.notion.com/v1"
 NOTION_VERSION = "2022-06-28"
+
+# Network errors worth retrying (SSL transient, connection reset, timeout).
+_RETRYABLE_EXCEPTIONS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+)
+
+_RETRY_ATTEMPTS = 3
+_RETRY_DELAY = 1.5  # seconds between retries
+
+
+def _call_with_retry(func, *args, **kwargs):
+    """Call *func* with automatic retry on transient network errors.
+
+    Retries up to ``_RETRY_ATTEMPTS`` times for ``_RETRYABLE_EXCEPTIONS``.
+    Non-retryable exceptions propagate immediately.  After all retries are
+    exhausted the last network exception is re-raised so that the caller's
+    own error handler can log / return a fallback.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(1, _RETRY_ATTEMPTS + 1):
+        try:
+            return func(*args, **kwargs)
+        except _RETRYABLE_EXCEPTIONS as exc:
+            last_exc = exc
+            if attempt < _RETRY_ATTEMPTS:
+                log.warning(
+                    "Notion API 网络错误 (attempt %d/%d): %s — %.1fs 后重试",
+                    attempt, _RETRY_ATTEMPTS, exc, _RETRY_DELAY,
+                )
+                time.sleep(_RETRY_DELAY)
+    raise last_exc  # type: ignore[misc]
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +409,7 @@ _client = NotionClient(
 def fetch_ready_tasks() -> list[dict]:
     """从 Notion Task 数据库获取所有 status=Ready 的任务，按 priority 排序。"""
     try:
-        return _client.query_ready_tasks()
+        return _call_with_retry(_client.query_ready_tasks)
     except Exception as e:
         log.error("查询 Ready 任务失败: %s", e)
         return []
@@ -385,7 +418,7 @@ def fetch_ready_tasks() -> list[dict]:
 def update_status(task_id: str, status: str):
     """更新 Notion Task 的 status 字段。"""
     try:
-        _client.update_task_status(task_id, status)
+        _call_with_retry(_client.update_task_status, task_id, status)
     except Exception as e:
         log.error("更新状态失败: task=%s, status=%s, error=%s", task_id, status, e)
 
@@ -393,7 +426,7 @@ def update_status(task_id: str, status: str):
 def append_log(task_id: str, log_entry: str):
     """向 Notion Task 的 execution_log 字段追加一行日志。"""
     try:
-        _client.append_execution_log(task_id, log_entry)
+        _call_with_retry(_client.append_execution_log, task_id, log_entry)
     except Exception as e:
         log.error("追加日志失败: task=%s, error=%s", task_id, e)
 
@@ -401,7 +434,7 @@ def append_log(task_id: str, log_entry: str):
 def get_project_info(project_id: str) -> dict:
     """获取项目上下文信息（名称、描述、仓库地址）。"""
     try:
-        return _client.get_project_info(project_id)
+        return _call_with_retry(_client.get_project_info, project_id)
     except Exception as e:
         log.error("获取项目信息失败: project=%s, error=%s", project_id, e)
         return {"project_name": "", "project_description": "", "repo_url": None}
@@ -410,7 +443,7 @@ def get_project_info(project_id: str) -> dict:
 def get_related_tasks(project_id: str) -> list[dict]:
     """获取同项目其他任务摘要。"""
     try:
-        return _client.get_related_tasks(project_id)
+        return _call_with_retry(_client.get_related_tasks, project_id)
     except Exception as e:
         log.error("获取关联任务失败: project=%s, error=%s", project_id, e)
         return []
@@ -419,7 +452,7 @@ def get_related_tasks(project_id: str) -> list[dict]:
 def get_page_body(page_id: str) -> str:
     """读取 Notion 页面正文 blocks，返回纯文本。"""
     try:
-        return _client.get_page_body(page_id)
+        return _call_with_retry(_client.get_page_body, page_id)
     except Exception as e:
         log.error("读取页面正文失败: page=%s, error=%s", page_id, e)
         return ""
@@ -428,7 +461,7 @@ def get_page_body(page_id: str) -> str:
 def create_task(project_id: str, task_name: str, description: str, **kwargs) -> str | None:  # pragma: no cover
     """在 Notion Task 数据库创建任务，返回 page_id。"""
     try:
-        return _client.create_task(project_id, task_name, description, **kwargs)
+        return _call_with_retry(_client.create_task, project_id, task_name, description, **kwargs)
     except Exception as e:
         log.error("创建任务失败: project=%s, name=%s, error=%s", project_id, task_name, e)
         return None
@@ -437,7 +470,7 @@ def create_task(project_id: str, task_name: str, description: str, **kwargs) -> 
 def get_task_status(task_id: str) -> str | None:
     """查询单个 Task 的当前 Notion status。"""
     try:
-        return _client.get_task_status(task_id)
+        return _call_with_retry(_client.get_task_status, task_id)
     except Exception as e:
         log.error("查询任务状态失败: task=%s, error=%s", task_id, e)
         return None
@@ -446,7 +479,7 @@ def get_task_status(task_id: str) -> str | None:
 def list_active_existing_projects() -> list[dict]:
     """查询所有 Active 且 project_type=existing 的项目。"""
     try:
-        return _client.query_active_existing_projects()
+        return _call_with_retry(_client.query_active_existing_projects)
     except Exception as e:
         log.error("查询 Active existing 项目失败: %s", e)
         return []
