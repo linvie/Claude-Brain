@@ -1,0 +1,122 @@
+# 飞书设置
+
+## 创建飞书应用
+
+1. 前往 https://open.feishu.cn/app （Lark 国际版：https://open.larksuite.com/app）→ 创建企业自建应用
+2. 启用「机器人」能力
+3. 配置事件订阅（接收方式选「使用长连接接收事件」）
+4. 添加权限 scope
+5. 发布应用版本
+
+### 事件订阅
+
+| 事件 | 说明 |
+|------|------|
+| `im.message.receive_v1` | 接收用户发送的消息（必需） |
+
+### 权限 scope
+
+| Scope | 说明 | 用途 |
+|-------|------|------|
+| `im:message` | 读取消息 | 接收和读取用户消息 |
+| `im:message:send_as_bot` | 发送消息 | Bot 发送/回复/编辑消息、流式卡片更新 |
+| `im:chat:readonly` | 读取群信息 | 群聊中识别消息类型和 @bot 提及 |
+| `im:message:reaction` | 表情回复 | Typing 指示器（处理中添加/完成后移除） |
+
+## 配置
+
+```bash
+ccbrain config feishu     # 引导填入 App ID 和 App Secret
+ccbrain restart
+```
+
+## Bot Menu 快捷指令（推荐配置）
+
+在飞书开发者后台配置底部菜单，用户可一键触发命令。
+
+**配置路径**：应用详情 → 机器人 → 编辑机器人自定义菜单 → 选择「悬浮菜单」样式 → 创建版本并发布
+
+**建议配置**（每个菜单项响应动作选"发送文字消息"）：
+
+| 菜单项名称 | 说明 |
+|---|---|
+| `/help` | 帮助信息 |
+| `/status` | Session 状态、CC 连接、模型 |
+| `/reset` | 重置对话 session |
+| `/model` | 查看/切换模型 |
+| `/usage` | 查看用量和费用 |
+| `/doctor` | 系统诊断 |
+
+注意：
+- Bot Menu 仅单聊生效，群聊不显示
+- 菜单触发的是普通文本消息，CCBrain 无需代码改动
+- `/btw <任务>` 等带参数的命令不适合放菜单
+
+## lark-cli（可选，增强 CC 能力）
+
+安装后 CC 可操作飞书：发消息、查日历、管理文档、多维表格等。
+
+```bash
+ccbrain config lark-cli
+```
+
+## 命令
+
+| 命令 | 说明 |
+|------|------|
+| `/btw <任务>` | 后台执行任务（不阻塞当前对话，最多 3 个并发） |
+| `/doctor` | 独立诊断系统状态（出错时使用，不污染当前 session） |
+| `/model` | 查看当前模型和可用列表 |
+| `/model switch <name>` | 切换模型（opus/sonnet/haiku/default） |
+| `/usage` | 查看查询次数和累计费用 |
+| `/status` | 查看 CC 连接状态、模型、费用 |
+| `/reset` | 重置对话 session |
+| `/help` | 帮助 |
+
+## 卡片渲染（v0.6+）
+
+- **Schema 2.0**：宽屏模式，原生支持标题、表格、引用
+- **Markdown 标题降级**：H1→H4，H2~H6→H5（飞书大标题渲染效果差）
+- **表格渲染降级**：schema 2.0 原生渲染，失败时自动降级为列表格式
+- **Typing 指示器**：消息处理开始添加 Typing emoji，完成后自动移除
+- **Footer 元信息**：终态卡片底部显示 `耗时 · 模型名 · 费用`（notation 小字）
+
+## 消息处理
+
+- 命令即时响应，不受 CC 执行阻塞
+- 普通消息线性排队处理（同一会话内）
+- 每个飞书群/私聊自动创建独立 workspace
+- **Session 持久**：仅 `/reset` 时归档，平时永远 resume（保持完整上下文）
+- 流式卡片输出：占位卡片 → 每 2 秒更新 → 最终结果（含 Footer）
+
+## 可靠性
+
+- **自动 context 压缩**：通过 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=70` 环境变量在 70% 用量时触发压缩
+- **三层错误自愈**：
+  - Layer 1：CC 子进程崩溃 → 自动重连 + 重试（用户无感知）
+  - Layer 2：response 180 秒无消息 → 主动超时断开
+  - Layer 3：所有错误返回友好文案而非"处理消息时发生错误"
+- **/doctor 命令**：独立 CC 进程跑诊断，即使当前 session 死了也能查问题
+
+## Notion 集成（v0.4+）
+
+飞书对话中可直接操作 Notion：
+
+- 查询/创建 Project 和 Task
+- 更新任务状态
+- 需要先完成 Notion 配置：`ccbrain config notion`
+
+## 安全
+
+配置授权用户（空列表 = 不限制）：
+
+```yaml
+# ~/.ccbrain/config.yaml
+feishu:
+  allowed_users:
+    - "ou_你的open_id"    # 从 ccbrain logs feishu 中获取
+```
+
+## 群聊
+
+Bot 在群聊中只响应 @bot 的消息。私聊中所有消息都会处理。
