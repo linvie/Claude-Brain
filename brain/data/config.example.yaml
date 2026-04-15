@@ -61,6 +61,7 @@ remote:
 # ── 飞书 Bot 配置（可选，ccbrain init 引导填写）──
 feishu:
   enabled: false
+  platform: feishu         # 平台: feishu（飞书）或 lark（Lark 国际版）
   app_id: ""               # 飞书应用 App ID
   app_secret: ""           # 飞书应用 App Secret
   allowed_users: []        # 授权用户 open_id 列表（空 = 不限制）
