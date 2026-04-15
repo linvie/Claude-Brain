@@ -14,6 +14,12 @@ from brain.integrations.notion import append_log, update_status
 
 _HISTORY_SEPARATOR = "\n"
 
+# TASK_DONE without pr_url: retry up to this many polls before marking Blocked.
+MAX_DONE_RETRIES = 5
+
+# In-memory retry counter: {task_id: int}
+_done_retry_counts: dict[str, int] = {}
+
 
 def check_all_outboxes(conn: sqlite3.Connection):
     """轮询所有运行中任务的 outbox.json。"""
@@ -36,14 +42,15 @@ def check_all_outboxes(conn: sqlite3.Connection):
         log_scheduler.info("收到 outbox: task=%s, 内容长度=%d", task["task_id"], len(content))
         log.debug("[outbox] task=%s, 原始内容:\n%s", task["task_id"], content)
 
-        handle_outbox(conn, task["task_id"], content)
+        handled = handle_outbox(conn, task["task_id"], content)
 
-        # 处理完后重置为空 JSON（避免重复处理）
-        outbox_path.write_text("{}", encoding="utf-8")
+        # 只有成功处理后才重置 outbox（deferred 的留给下次轮询）
+        if handled:
+            outbox_path.write_text("{}", encoding="utf-8")
 
 
-def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
-    """处理 outbox.json 内容。"""
+def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str) -> bool:
+    """处理 outbox.json 内容。返回 True 表示已处理，False 表示需要下次重试。"""
     now_str = time.strftime("%Y-%m-%d %H:%M")
 
     is_valid, error_msg = validate_outbox(content)
@@ -57,7 +64,7 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
         conn.commit()
         update_status(task_id, "Blocked")
         append_log(task_id, f"[{now_str}] outbox 格式异常: {error_msg}")
-        return
+        return True  # format error is terminal, clear outbox
 
     data = parse_outbox(content)
     status = data["status"]
@@ -65,6 +72,42 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
     log_entry = f"[{now_str}] {summary}"
 
     if status == "TASK_DONE":
+        # Guard: TASK_DONE must include pr_url — CC may still be pushing/creating PR.
+        pr_url = data.get("pr_url", "")
+        if not pr_url:
+            retries = _done_retry_counts.get(task_id, 0) + 1
+            _done_retry_counts[task_id] = retries
+            if retries >= MAX_DONE_RETRIES:
+                # Exhausted retries — mark blocked so it doesn't hang forever
+                log_scheduler.warning(
+                    "TASK_DONE 缺少 pr_url 且重试 %d 次已耗尽: task=%s", retries, task_id
+                )
+                _done_retry_counts.pop(task_id, None)
+                _kill_cc_process(conn, task_id)
+                conn.execute(
+                    "UPDATE task_runs SET status = 'blocked', end_time = ? WHERE task_id = ?",
+                    (int(time.time()), task_id),
+                )
+                conn.commit()
+                append_log(
+                    task_id,
+                    f"[{now_str}] TASK_DONE 缺少 pr_url，重试 {retries} 次后标记 Blocked",
+                )
+                update_status(task_id, "Blocked")
+                _notify_feishu(
+                    "TASK_BLOCKED",
+                    task_id,
+                    f"TASK_DONE 写入但 pr_url 为空，CC 可能未完成 push/PR。重试 {retries} 次后放弃。",
+                )
+                return True
+            log_scheduler.info(
+                "TASK_DONE 缺少 pr_url，等待下次轮询 (%d/%d): task=%s",
+                retries, MAX_DONE_RETRIES, task_id,
+            )
+            return False  # defer — don't clear outbox, retry next poll
+
+        # pr_url present — clear retry counter and proceed
+        _done_retry_counts.pop(task_id, None)
         _kill_cc_process(conn, task_id)
         append_log(task_id, log_entry)
 
@@ -120,6 +163,7 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
         if pr_url:
             notify_summary = f"{summary}\n\nPR: {pr_url}"
         _notify_feishu("TASK_DONE", task_name, notify_summary)
+        return True
 
     elif status == "TASK_BLOCKED":
         _kill_cc_process(conn, task_id)
@@ -139,11 +183,15 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str):
         ).fetchone()
         task_name = row["task_name"] if row else task_id
         _notify_feishu("TASK_BLOCKED", task_name, reason)
+        return True
 
     elif status == "TASK_PROGRESS":
         stage = data["stage"]
         append_log(task_id, log_entry)
         log_scheduler.info("进度: task=%s, stage=%s, summary=%s", task_id, stage, summary[:100])
+        return True
+
+    return True  # unknown status (shouldn't happen after validation)
 
 
 def _notify_feishu(status: str, task_name: str, summary: str):  # pragma: no cover
