@@ -82,6 +82,11 @@ memory:
   max_context_tokens: 2000   # 注入记忆的 token 上限
   views_interval_hours: 6    # 每日摘要检查间隔（小时）
 
+# ── 心跳巡检 ──
+heartbeat:
+  enabled: true              # 心跳总开关
+  interval: 3600             # 检查间隔（秒），默认 1 小时
+
 # ── 日志 ──
 logging:
   level: DEBUG             # 文件日志级别（控制台固定 INFO）
