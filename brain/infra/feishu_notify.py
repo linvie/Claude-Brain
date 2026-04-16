@@ -7,8 +7,14 @@ import json
 
 import requests
 
-from brain.config import FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENABLED
+from brain.config import FEISHU_APP_ID, FEISHU_APP_SECRET, FEISHU_ENABLED, FEISHU_PLATFORM
 from brain.infra.logger import log
+
+# 根据 platform 配置选择 API 域名
+_API_BASE = (
+    "https://open.larksuite.com" if FEISHU_PLATFORM == "lark"
+    else "https://open.feishu.cn"
+)
 
 
 def notify_feishu(title: str, content: str, chat_id: str = "") -> bool:
@@ -50,7 +56,7 @@ def notify_feishu(title: str, content: str, chat_id: str = "") -> bool:
             card["elements"].insert(1, {"tag": "hr"})
 
         resp = requests.post(
-            "https://open.feishu.cn/open-apis/im/v1/messages",
+            f"{_API_BASE}/open-apis/im/v1/messages",
             params={"receive_id_type": "chat_id"},
             headers={
                 "Authorization": f"Bearer {token}",
@@ -77,7 +83,7 @@ def _get_tenant_token() -> str | None:  # pragma: no cover
     """获取 tenant_access_token。"""
     try:
         resp = requests.post(
-            "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            f"{_API_BASE}/open-apis/auth/v3/tenant_access_token/internal",
             json={"app_id": FEISHU_APP_ID, "app_secret": FEISHU_APP_SECRET},
             timeout=10,
         )
