@@ -80,3 +80,8 @@ MEMORY_DECAY_HALF_LIFE = _memory_cfg.get("decay_half_life_days", 30)
 MEMORY_ALWAYS_ON_THRESHOLD = _memory_cfg.get("always_on_threshold", 8)
 MEMORY_MAX_CONTEXT_TOKENS = _memory_cfg.get("max_context_tokens", 2000)
 MEMORY_VIEWS_INTERVAL_HOURS = _memory_cfg.get("views_interval_hours", 6)
+
+# Heartbeat 配置
+_heartbeat_cfg = CONFIG.get("heartbeat", {})
+HEARTBEAT_ENABLED = _heartbeat_cfg.get("enabled", True)
+HEARTBEAT_INTERVAL = _heartbeat_cfg.get("interval", 3600)  # 秒，默认 1 小时

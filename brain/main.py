@@ -13,6 +13,8 @@ from brain.config import (
     FEISHU_APP_SECRET,
     FEISHU_ENABLED,
     FEISHU_PLATFORM,
+    HEARTBEAT_ENABLED,
+    HEARTBEAT_INTERVAL,
     IDLE_INTERVAL,
     MAX_CONCURRENT,
     MAX_TASK_DURATION,
@@ -592,6 +594,62 @@ async def _daily_views_loop(conn, shutdown: asyncio.Event):  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
+# Heartbeat 心跳定时任务
+# ---------------------------------------------------------------------------
+
+async def _heartbeat_loop(shutdown: asyncio.Event):  # pragma: no cover
+    """定时执行心跳检查。遍历所有 v2 workspace 执行检查。"""
+    from brain.scheduler.heartbeat import run_heartbeat_and_notify
+
+    log.info("[heartbeat] 心跳定时任务已启动 (间隔 %ds)", HEARTBEAT_INTERVAL)
+
+    while not shutdown.is_set():
+        # 先等待一个间隔，再执行（启动后不立即触发）
+        try:
+            await asyncio.wait_for(shutdown.wait(), timeout=HEARTBEAT_INTERVAL)
+        except asyncio.TimeoutError:
+            pass
+        else:
+            break  # shutdown triggered
+
+        # 找到一个可用的 v2 workspace 执行心跳
+        workspace = _pick_heartbeat_workspace()
+        if workspace:
+            try:
+                await run_heartbeat_and_notify(workspace)
+            except Exception:
+                log.exception("[heartbeat] 心跳任务异常")
+        else:
+            log.debug("[heartbeat] 无可用 v2 workspace，跳过本次心跳")
+
+
+def _pick_heartbeat_workspace():
+    """选择一个 v2 workspace 用于心跳检查。
+
+    v2 workspace 没有 inbox.json/outbox.json（那是 v1 的标志）。
+    优先选择最近修改的 workspace。
+    """
+    if not WORKSPACE_BASE.exists():
+        return None
+
+    candidates = []
+    for ws in WORKSPACE_BASE.iterdir():
+        if not ws.is_dir():
+            continue
+        # 跳过 v1 workspace
+        if (ws / "inbox.json").exists() or (ws / "outbox.json").exists():
+            continue
+        candidates.append(ws)
+
+    if not candidates:
+        return None
+
+    # 选择最近修改的
+    candidates.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0]
+
+
+# ---------------------------------------------------------------------------
 # 启动时更新 workspace 模板
 # ---------------------------------------------------------------------------
 
@@ -685,6 +743,16 @@ async def main():  # pragma: no cover
         t = asyncio.create_task(
             _daily_views_loop(conn, _shutdown_event),
             name="daily-views",
+        )
+        t.add_done_callback(_on_task_exception)
+        tasks.append(t)
+
+    # Heartbeat 心跳定时任务
+    if HEARTBEAT_ENABLED:
+        log.info("心跳巡检已启用 (间隔 %ds)", HEARTBEAT_INTERVAL)
+        t = asyncio.create_task(
+            _heartbeat_loop(_shutdown_event),
+            name="heartbeat",
         )
         t.add_done_callback(_on_task_exception)
         tasks.append(t)

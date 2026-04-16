@@ -132,8 +132,15 @@ def update_workspace_template(workspace: Path, channel_id: str):
     log.debug("更新模板: %s", workspace.name)
 
 
+# 用户自定义文件：仅在 workspace 中不存在时创建，不覆盖用户修改
+_USER_OWNED_FILES = {"HEARTBEAT.md"}
+
+
 def _sync_template_extras(workspace: Path):
-    """同步模板目录中除 CLAUDE.md 外的所有文件和子目录到 workspace。"""
+    """同步模板目录中除 CLAUDE.md 外的所有文件和子目录到 workspace。
+
+    _USER_OWNED_FILES 中的文件只在不存在时创建，不覆盖用户修改。
+    """
     if not _TEMPLATE_DIR.exists():
         return
     for src in _TEMPLATE_DIR.iterdir():
@@ -141,6 +148,8 @@ def _sync_template_extras(workspace: Path):
             continue  # CLAUDE.md 由 update_workspace_template 单独处理
         dest = workspace / src.name
         if src.is_file():
+            if src.name in _USER_OWNED_FILES and dest.exists():
+                continue  # 用户自定义文件已存在，不覆盖
             shutil.copy2(src, dest)
         elif src.is_dir():
             dest.mkdir(parents=True, exist_ok=True)
