@@ -285,3 +285,20 @@ class TestTemplateInjection:
             _sync_template_extras(workspace)
 
         assert (workspace / "HEARTBEAT.md").read_text() == "Default template"
+
+
+# ---------------------------------------------------------------------------
+# HEARTBEAT_SYSTEM.md content
+# ---------------------------------------------------------------------------
+
+
+class TestHeartbeatSystemTemplate:
+    """HEARTBEAT_SYSTEM.md 内容验证。"""
+
+    def test_no_messaging_constraint_present(self):
+        """系统模板必须包含禁止自行发送消息的约束。"""
+        from brain.scheduler.heartbeat import _SYSTEM_TEMPLATE
+
+        content = _SYSTEM_TEMPLATE.read_text(encoding="utf-8")
+        assert "禁止发送消息" in content
+        assert "lark-cli" in content

@@ -85,3 +85,4 @@ MEMORY_VIEWS_INTERVAL_HOURS = _memory_cfg.get("views_interval_hours", 6)
 _heartbeat_cfg = CONFIG.get("heartbeat", {})
 HEARTBEAT_ENABLED = _heartbeat_cfg.get("enabled", True)
 HEARTBEAT_INTERVAL = _heartbeat_cfg.get("interval", 3600)  # 秒，默认 1 小时
+HEARTBEAT_MODEL = _heartbeat_cfg.get("model", "haiku")  # 默认 haiku，减少用量消耗
