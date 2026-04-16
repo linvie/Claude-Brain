@@ -4,7 +4,9 @@
 
 1. 前往 https://open.feishu.cn/app → 创建企业自建应用
 2. 启用「机器人」能力
-3. 订阅事件 `im.message.receive_v1`，接收方式选「使用长连接接收事件」
+3. 订阅事件，接收方式选「使用长连接接收事件」：
+   - `im.message.receive_v1`（接收消息）
+   - `card.action.trigger`（交互卡片按钮/表单回调）
 4. 添加权限：`im:message`、`im:message:send_as_bot`、`im:chat`
 5. 发布应用版本
 

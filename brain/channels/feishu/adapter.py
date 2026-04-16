@@ -8,6 +8,10 @@ import threading
 import time
 
 import lark_oapi as lark
+from lark_oapi.event.callback.model.p2_card_action_trigger import (
+    P2CardActionTrigger,
+    P2CardActionTriggerResponse,
+)
 
 from brain.channels.base import ChannelAdapter, IncomingMessage, OutgoingMessage
 from brain.channels.feishu.client import FeishuClient
@@ -86,6 +90,47 @@ class FeishuAdapter(ChannelAdapter):
                 self._loop,
             )
 
+    def _on_card_action(self, data: P2CardActionTrigger) -> P2CardActionTriggerResponse:
+        """卡片按钮/表单回调 → 转文本 → 当作普通消息派发给 CC。"""
+        event = data.event
+        chat_id = event.context.open_chat_id
+        user_id = event.operator.open_id
+        msg_id = event.context.open_message_id
+
+        # 用户校验（同 _on_receive）
+        if self._allowed_users and user_id not in self._allowed_users:
+            log.info("忽略非授权用户卡片回调: user=%s", user_id)
+            return P2CardActionTriggerResponse({})
+
+        # 把 action 序列化成自然语言
+        action = event.action
+        parts = ["[飞书卡片回调]"]
+        if getattr(action, "name", None):
+            parts.append(f"按钮：{action.name}")
+        if getattr(action, "value", None):
+            parts.append(f"数据：{json.dumps(action.value, ensure_ascii=False)}")
+        if getattr(action, "form_value", None):
+            parts.append(f"表单填写：{json.dumps(action.form_value, ensure_ascii=False)}")
+        text = "\n".join(parts)
+
+        incoming = IncomingMessage(
+            channel_id=chat_id,
+            user_id=user_id,
+            message_id=msg_id,
+            text=text,
+            platform=self._platform,
+            timestamp=time.time(),
+        )
+
+        log.info("收到卡片回调: chat=%s, button=%s", chat_id, getattr(action, "name", ""))
+
+        # 派发到主 loop（同 _on_receive 模式）
+        if self._callback and self._loop:
+            asyncio.run_coroutine_threadsafe(self._callback(incoming), self._loop)
+
+        # 立即 ack（避免 3 秒超时）
+        return P2CardActionTriggerResponse({"toast": {"type": "info", "content": "已收到"}})
+
     def _ws_thread_main(self):
         """在独立线程 + 独立 event loop 中运行飞书 WebSocket。
 
@@ -103,6 +148,7 @@ class FeishuAdapter(ChannelAdapter):
         event_handler = (
             lark.EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(self._on_receive)
+            .register_p2_card_action_trigger(self._on_card_action)
             .build()
         )
 
