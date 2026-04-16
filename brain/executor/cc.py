@@ -445,6 +445,7 @@ async def one_shot_query(
     cwd: str | Path,
     system_append: str = "",
     timeout: float = 120.0,
+    model: str | None = None,
 ) -> str:
     """独立一次性 query：完全隔离的 CC 进程，不复用任何 session。
 
@@ -469,10 +470,11 @@ async def one_shot_query(
         cwd=str(cwd),
         permission_mode="bypassPermissions",
         system_prompt=system_prompt,
+        model=model,
         setting_sources=["project", "user", "local"],
     )
 
-    log_cc.info("one_shot_query 启动: cwd=%s, prompt=%s", cwd, prompt[:80])
+    log_cc.info("one_shot_query 启动: cwd=%s, model=%s, prompt=%s", cwd, model, prompt[:80])
 
     try:
         return await asyncio.wait_for(

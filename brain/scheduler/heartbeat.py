@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from brain.config import RESOURCE_DIR
+from brain.config import HEARTBEAT_MODEL, RESOURCE_DIR
 
 log = logging.getLogger("brain.heartbeat")
 
@@ -70,6 +70,7 @@ async def run_heartbeat(workspace: Path) -> str | None:
         cwd=workspace,
         system_append=prompt,
         timeout=90.0,
+        model=HEARTBEAT_MODEL,
     )
 
     if not result or NO_ACTION_MARKER in result:
