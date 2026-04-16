@@ -1,6 +1,6 @@
 # CCBrain 开发状态
 
-最后更新：2026-04-14
+最后更新：2026-04-16
 
 ---
 
@@ -76,6 +76,43 @@
 - get_project_info() 返回 project_type 字段
 - 110 个测试
 
+### v0.7.x — v0.12.x — 记忆系统 Phase B
+- FTS5 全文搜索（trigram tokenizer 支持中英文）
+- Haiku LLM 提取（替代正则，TYPE|IMPORTANCE|CONTENT 结构化输出）
+- Context Bridge 三层检索（always-on importance>=8 + FTS5 相关性 + 近 7 天 scope 过滤）+ Ebbinghaus 时间衰减
+- Raw Ledger JSONL 归档 + memory_sessions 生命周期追踪
+- Daily Views 每日摘要生成（每 6h 检查，Haiku 生成 markdown）
+- 历史飞书 session 回填（backfill.py 一次性脚本）
+- 25 个集成测试 + 206 测试通过
+
+### v0.12.x — Executor PR 工作流 + 稳定性修复
+- Executor 在 feature branch 工作，完成后推送并创建 PR（不再直推 main）
+- outbox.json 新增 pr_url 字段，Brain 写入 Notion 并飞书通知
+- V1 模板智能注入（CCBRAIN_TEMPLATE_START/END 标记合并，替代 shutil.copy2 盲覆盖）
+- v1 模板从 templates/ 移到 brain/data/v1_templates/，确保 wheel 打包
+- _reinit_all_workspaces() 检测 inbox.json/outbox.json 跳过 v1 workspace
+- Notion API 重试机制（_call_with_retry，自动重试 ConnectionError/SSLError/Timeout）
+- outbox 竞态条件修复（TASK_DONE 缺 pr_url 时不处理，等待重试）
+- 记忆 bug 修复（_find_sdk_jsonl 路径、extractor 触发顺序、summarized_at 字段拆分）
+
+### v0.13.x — Lark 国际版
+- feishu.platform 配置项（feishu/lark），自动切换 API 域名和 WebSocket 域名
+- ccbrain init 引导新增平台选择步骤
+- 修复 ccbrain init 选择 Lark 后 platform 未写入 config.yaml
+
+### v0.14.x — 初始化引导增强
+- ccbrain init 权限和事件订阅引导（分类展示 + 用途说明）
+- docs/feishu.md 重构（权限表格、Lark 国际版控制台 URL）
+- /brain-init skill 复制到飞书 channel workspace 模板
+
+### v0.15.x — 心跳 + 交互卡片
+- Heartbeat 心跳机制（build_heartbeat_prompt + run_heartbeat + 飞书通知）
+- 合并 HEARTBEAT_SYSTEM.md（内建）和 HEARTBEAT.md（用户自定义）
+- main.py asyncio 定时触发（heartbeat.interval 默认 3600s）
+- 飞书交互卡片（card.action.trigger 回调 → 按钮/表单转文本 IncomingMessage）
+- /ask skill 模板（CC 自由构造卡片 JSON）
+- 263 个测试通过
+
 ---
 
 ## 待办（按功能域）
@@ -96,9 +133,9 @@
 
 ### 定时任务 / 主动感知（P1）
 
-- [ ] **Cron + 心跳机制**（P1，高价值/中难度）
-  - 基于 scheduler 实现定时触发
-  - HEARTBEAT.md 作为检查清单：早上推送日程摘要、监控 Notion 任务状态、提醒待办
+- [x] **Heartbeat 心跳机制**（Done，v0.15.0）
+  - main.py asyncio 定时触发，合并 HEARTBEAT_SYSTEM.md + HEARTBEAT.md
+  - 隔离 CC session 执行检查，含 NO_ACTION 时静默，否则推送飞书
   - 核心价值：brain 从"等人问"变"主动做事"
 
 ### 飞书体验（P1-P3）
@@ -119,7 +156,7 @@
 **待定 — deliver 多卡片分发**（需设计框架层调度）：
 - [ ] CC 单 turn 多段输出（tool results + 最终答案）分卡片发送
 
-- [ ] **交互卡片**（P1）：已调研+设计，详见 `docs/feishu-interactive-cards-plan.md`
+- [x] **交互卡片**（Done，v0.15.0）：card.action.trigger 回调 + /ask skill，详见 `docs/feishu-interactive-cards-plan.md`
 - [ ] **图片消息**（P3）：adapter 接收 image → 下载到 workspace → prompt 引导 CC 用 Read 读图
 
 ### Prompt / 人格（P2-P3）
