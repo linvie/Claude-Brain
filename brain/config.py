@@ -64,6 +64,8 @@ FEISHU_PLATFORM = _feishu_cfg.get("platform", "feishu")  # 'feishu' 或 'lark'
 _notion_cfg = CONFIG.get("notion", {})
 NOTION_TASK_DB_ID = _notion_cfg.get("task_db_id", "")
 NOTION_PROJECT_DB_ID = _notion_cfg.get("project_db_id", "")
+# Notion MCP 服务器名称（注册时的名称，影响工具前缀 mcp__<name>__*）
+NOTION_MCP_NAME = _notion_cfg.get("mcp_name", "notion")
 
 # v2: Session 配置
 _session_cfg = CONFIG.get("session", {})

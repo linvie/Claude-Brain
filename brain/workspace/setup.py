@@ -5,7 +5,13 @@ import logging
 import shutil
 from pathlib import Path
 
-from brain.config import CONFIG, FEISHU_ENABLED, FEISHU_NOTIFY_CHAT_ID, RESOURCE_DIR
+from brain.config import (
+    CONFIG,
+    FEISHU_ENABLED,
+    FEISHU_NOTIFY_CHAT_ID,
+    NOTION_MCP_NAME,
+    RESOURCE_DIR,
+)
 
 log_cc = logging.getLogger("brain.cc")
 
@@ -29,6 +35,7 @@ def setup_workspace(workspace: Path, task_type: str, inbox_data: dict, task: dic
     """
     _install_shared_template(workspace)
     _install_role_template(workspace, task_type)
+    _inject_notion_mcp_name(workspace)
     _write_inbox(workspace, inbox_data)
     _write_git_exclude(workspace)
     _write_project_docs(workspace, project_body)
@@ -101,6 +108,38 @@ def _merge_claude_md(template_src: Path, dest: Path):
         result = new_template
 
     dest.write_text(result, encoding="utf-8")
+
+
+def _inject_notion_mcp_name(workspace: Path):
+    """Replace hardcoded mcp__notion__ prefix with the actual configured MCP name.
+
+    When users register the Notion MCP server with a custom name (e.g. "notion-ccbrain"),
+    tool names become mcp__notion-ccbrain__* instead of the default mcp__notion__*.
+    This function patches installed templates to use the actual name.
+    """
+    if NOTION_MCP_NAME == "notion":
+        return  # default name, no replacement needed
+
+    default_prefix = "mcp__notion__"
+    actual_prefix = f"mcp__{NOTION_MCP_NAME}__"
+    default_perm = '"mcp__notion__*"'
+    actual_perm = f'"mcp__{NOTION_MCP_NAME}__*"'
+
+    # Patch CLAUDE.md
+    claude_md = workspace / "CLAUDE.md"
+    if claude_md.exists():
+        content = claude_md.read_text(encoding="utf-8")
+        if default_prefix in content:
+            claude_md.write_text(content.replace(default_prefix, actual_prefix), encoding="utf-8")
+            log_cc.debug("Notion MCP 名称替换: CLAUDE.md (%s → %s)", default_prefix, actual_prefix)
+
+    # Patch .claude/settings.json
+    settings_path = workspace / ".claude" / "settings.json"
+    if settings_path.exists():
+        content = settings_path.read_text(encoding="utf-8")
+        if default_perm in content:
+            settings_path.write_text(content.replace(default_perm, actual_perm), encoding="utf-8")
+            log_cc.debug("Notion MCP 名称替换: settings.json (%s → %s)", default_perm, actual_perm)
 
 
 def _write_inbox(workspace: Path, inbox_data: dict):

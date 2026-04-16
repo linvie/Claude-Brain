@@ -1,8 +1,9 @@
 """executor 模板完整性测试 — 验证 .claude/ 基础设施能完整复制到 workspace。"""
 
 import json
+from unittest.mock import patch
 
-from brain.workspace.setup import _install_role_template
+from brain.workspace.setup import _inject_notion_mcp_name, _install_role_template
 
 
 class TestExecutorTemplate:
@@ -84,3 +85,55 @@ class TestPlannerTemplate:
         assert "验收标准" in content
         assert "验证方式" in content
         assert "工具调用次数" in content  # 新增的具体粒度规则
+
+
+class TestNotionMcpNameInjection:
+    """MCP 名称动态注入 — 当用户自定义 Notion MCP 名称时替换模板中的硬编码引用。"""
+
+    def test_default_name_no_replacement(self, tmp_path):
+        """Default name 'notion' — no changes needed."""
+        _install_role_template(tmp_path, "planner")
+        original = (tmp_path / "CLAUDE.md").read_text()
+
+        with patch("brain.workspace.setup.NOTION_MCP_NAME", "notion"):
+            _inject_notion_mcp_name(tmp_path)
+
+        assert (tmp_path / "CLAUDE.md").read_text() == original
+
+    def test_custom_name_replaces_claude_md(self, tmp_path):
+        """Custom MCP name replaces mcp__notion__ in CLAUDE.md."""
+        _install_role_template(tmp_path, "planner")
+
+        with patch("brain.workspace.setup.NOTION_MCP_NAME", "notion-ccbrain"):
+            _inject_notion_mcp_name(tmp_path)
+
+        content = (tmp_path / "CLAUDE.md").read_text()
+        assert "mcp__notion-ccbrain__API-patch-block-children" in content
+        assert "mcp__notion-ccbrain__API-post-page" in content
+        assert "mcp__notion__" not in content
+
+    def test_custom_name_replaces_settings_json(self, tmp_path):
+        """Custom MCP name replaces permission pattern in settings.json."""
+        _install_role_template(tmp_path, "planner")
+        original_settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert "mcp__notion__*" in original_settings["permissions"]["allow"]
+
+        with patch("brain.workspace.setup.NOTION_MCP_NAME", "notion-ccbrain"):
+            _inject_notion_mcp_name(tmp_path)
+
+        patched = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert "mcp__notion-ccbrain__*" in patched["permissions"]["allow"]
+        assert "mcp__notion__*" not in patched["permissions"]["allow"]
+
+    def test_executor_deny_pattern_replaced(self, tmp_path):
+        """Executor's deny list also gets patched."""
+        _install_role_template(tmp_path, "executor")
+        original = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert "mcp__notion__*" in original["permissions"]["deny"]
+
+        with patch("brain.workspace.setup.NOTION_MCP_NAME", "notion-work"):
+            _inject_notion_mcp_name(tmp_path)
+
+        patched = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+        assert "mcp__notion-work__*" in patched["permissions"]["deny"]
+        assert "mcp__notion__*" not in patched["permissions"]["deny"]

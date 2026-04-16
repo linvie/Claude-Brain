@@ -65,11 +65,11 @@ def workspace(tmp_path):
     return ws
 
 
-def _insert_running_task(conn, task_id="t1", workspace_path="/tmp/ws", pid=12345):
+def _insert_running_task(conn, task_id="t1", workspace_path="/tmp/ws", pid=12345, task_type="executor"):
     conn.execute(
-        "INSERT INTO task_runs (task_id, project_id, status, workspace_path, pid, start_time, task_name) "
-        "VALUES (?, 'p1', 'running', ?, ?, 1000, 'test task')",
-        (task_id, workspace_path, pid),
+        "INSERT INTO task_runs (task_id, project_id, status, workspace_path, pid, start_time, task_name, task_type) "
+        "VALUES (?, 'p1', 'running', ?, ?, 1000, 'test task', ?)",
+        (task_id, workspace_path, pid, task_type),
     )
     conn.commit()
 
@@ -105,7 +105,45 @@ def test_done_with_pr_url_processes(mock_kill, mock_append, mock_status, mock_no
     assert row["status"] == "done"
 
 
-# ── TASK_DONE without pr_url: should defer ──
+# ── TASK_DONE without pr_url (planner): should process immediately ──
+
+
+@patch("brain.core.outbox._notify_feishu")
+@patch("brain.core.outbox.update_status")
+@patch("brain.core.outbox.append_log")
+@patch("brain.core.outbox._kill_cc_process")
+def test_done_planner_without_pr_url_processes(mock_kill, mock_append, mock_status, mock_notify, db, workspace):
+    """Planner tasks don't produce PRs — TASK_DONE without pr_url should succeed."""
+    _insert_running_task(db, workspace_path=str(workspace), task_type="planner")
+    content = _make_done_outbox(pr_url="")
+
+    result = handle_outbox(db, "t1", content)
+
+    assert result is True
+    mock_kill.assert_called_once()
+    mock_status.assert_called_once_with("t1", "Done")
+    row = db.execute("SELECT status FROM task_runs WHERE task_id = 't1'").fetchone()
+    assert row["status"] == "done"
+    assert "t1" not in _done_retry_counts
+
+
+@patch("brain.core.outbox._notify_feishu")
+@patch("brain.core.outbox.update_status")
+@patch("brain.core.outbox.append_log")
+@patch("brain.core.outbox._kill_cc_process")
+def test_done_tester_without_pr_url_processes(mock_kill, mock_append, mock_status, mock_notify, db, workspace):
+    """Tester tasks don't produce PRs — TASK_DONE without pr_url should succeed."""
+    _insert_running_task(db, workspace_path=str(workspace), task_type="tester")
+    content = _make_done_outbox(pr_url="")
+
+    result = handle_outbox(db, "t1", content)
+
+    assert result is True
+    mock_kill.assert_called_once()
+    mock_status.assert_called_once_with("t1", "Done")
+
+
+# ── TASK_DONE without pr_url (executor): should defer ──
 
 
 @patch("brain.core.outbox._notify_feishu")

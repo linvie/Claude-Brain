@@ -72,9 +72,16 @@ def handle_outbox(conn: sqlite3.Connection, task_id: str, content: str) -> bool:
     log_entry = f"[{now_str}] {summary}"
 
     if status == "TASK_DONE":
+        # Look up task_type — only executor tasks require pr_url.
+        row_type = conn.execute(
+            "SELECT task_type FROM task_runs WHERE task_id = ?", (task_id,)
+        ).fetchone()
+        task_type = row_type["task_type"] if row_type and row_type["task_type"] else "executor"
+
         # Guard: TASK_DONE must include pr_url — CC may still be pushing/creating PR.
+        # Only enforced for executor tasks; planner/tester don't produce PRs.
         pr_url = data.get("pr_url", "")
-        if not pr_url:
+        if not pr_url and task_type == "executor":
             retries = _done_retry_counts.get(task_id, 0) + 1
             _done_retry_counts[task_id] = retries
             if retries >= MAX_DONE_RETRIES:
