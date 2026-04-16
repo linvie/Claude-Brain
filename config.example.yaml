@@ -19,6 +19,7 @@ notion:
   token: ""                # Notion Integration Token（ntn_xxx）
   project_db_id: ""        # Project 数据库 ID
   task_db_id: ""           # Task 数据库 ID
+  mcp_name: "notion"       # Notion MCP 服务器名称（影响 mcp__<name>__* 工具前缀）
 
 # ── CC 角色权限 ──
 roles:
