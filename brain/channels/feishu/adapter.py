@@ -25,6 +25,41 @@ def _platform_to_domain(platform: str) -> str:
     return lark.FEISHU_DOMAIN
 
 
+def _extract_post_text(content_obj: dict) -> str:
+    """从飞书 post（富文本）消息中提取纯文本。
+
+    Post 格式: {"title": "...", "content": [[{tag, text/href, ...}, ...], ...]}
+    遍历所有段落和元素，拼接 tag=text 和 tag=a 的文本内容。
+    """
+    parts: list[str] = []
+    # post 内容可能按语言分区（zh_cn / en_us / ja_jp），取第一个非空的
+    post_body = content_obj
+    if isinstance(post_body, dict) and "content" not in post_body:
+        # 语言分区格式: {"zh_cn": {"title": ..., "content": [...]}}
+        for _lang, body in post_body.items():
+            if isinstance(body, dict) and "content" in body:
+                post_body = body
+                break
+    title = post_body.get("title", "")
+    if title:
+        parts.append(title)
+    for paragraph in post_body.get("content", []):
+        line_parts: list[str] = []
+        for elem in paragraph:
+            tag = elem.get("tag", "")
+            if tag == "text":
+                line_parts.append(elem.get("text", ""))
+            elif tag == "a":
+                line_parts.append(elem.get("text", elem.get("href", "")))
+            elif tag == "at":
+                # @提及：优先取用户名
+                line_parts.append(elem.get("user_name", ""))
+        line = "".join(line_parts)
+        if line:
+            parts.append(line)
+    return "\n".join(parts)
+
+
 class FeishuAdapter(ChannelAdapter):
     """飞书 adapter：通过 WebSocket 长连接接收消息，同步 API 发送/编辑消息。"""
 
@@ -50,7 +85,7 @@ class FeishuAdapter(ChannelAdapter):
         msg = data.event.message
         sender = data.event.sender
 
-        if msg.message_type != "text":
+        if msg.message_type not in ("text", "post"):
             log.debug("忽略非文本消息: type=%s", msg.message_type)
             return
 
@@ -68,7 +103,11 @@ class FeishuAdapter(ChannelAdapter):
                 log.debug("群聊消息未 @bot，忽略: chat=%s", msg.chat_id)
                 return
 
-        text = content_obj.get("text", "")
+        # 根据消息类型提取纯文本
+        if msg.message_type == "post":
+            text = _extract_post_text(content_obj)
+        else:
+            text = content_obj.get("text", "")
         if not text.strip():
             return
 
