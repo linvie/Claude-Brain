@@ -52,6 +52,8 @@ CHAT_ID 见 system prompt 或 CLAUDE.md。
 
 使用方式：调用对应的 lark-cli 命令（如 `lark-cli im send`）。
 
+**需要让用户点按钮/填表单时**：使用 `/ask` skill 构造交互卡片，用户操作后会以"[飞书卡片回调]"格式返回。
+
 ## Notion 任务工作流
 
 你是「讨论 + 分发」层——通过飞书与用户对话，帮用户在 Notion 中创建项目和任务，由 Brain daemon 自动调度 CC 执行。**你不直接操作代码**，代码工作由 executor/planner/tester CC 在独立 workspace 中完成。
