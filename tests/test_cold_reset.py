@@ -14,9 +14,7 @@ import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-from brain.executor.cc import _LiveSession, _MEMORY_INJECT_CHAR_BUDGET
+from brain.executor.cc import _MEMORY_INJECT_CHAR_BUDGET, _LiveSession
 
 
 def _make_session(**kwargs) -> _LiveSession:
@@ -299,7 +297,6 @@ class TestColdResetInQueryOnce:
             patch.object(session, "_ensure_connected", side_effect=mock_ensure),
             patch("brain.executor.cc.MEMORY_ENABLED", False),
         ):
-            from brain.executor.cc import ResultMessage
             mock_result_type = type(MagicMock())
             with patch("brain.executor.cc.ResultMessage", mock_result_type):
                 sid, text, meta = await session._query_once("hello")
@@ -464,14 +461,14 @@ class TestColdResetInQueryOnce:
     async def test_warm_does_not_trigger_cold_reset(self):
         """warm 状态不应触发 cold reset。"""
         session = _make_session()
-        session.last_activity = time.time() - 360  # warm (6 min)
+        session.last_activity = time.time() - 3700  # warm (约 62 min)
 
         with (
             patch.object(session, "_reset_session", new_callable=AsyncMock) as mock_reset,
             patch.object(session, "_compact_session", new_callable=AsyncMock),
             patch.object(session, "_ensure_connected", new_callable=AsyncMock),
-            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 300),
-            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 7200),
+            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 3600),
+            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 14400),
             patch("brain.executor.cc.MEMORY_ENABLED", False),
         ):
             session._connected = True

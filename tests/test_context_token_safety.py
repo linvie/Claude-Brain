@@ -11,12 +11,10 @@
 - compact 成功后 last_context_tokens 归零
 """
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from claude_agent_sdk import ResultMessage
 
 from brain.executor import cc
@@ -274,16 +272,18 @@ class TestForceCompactOnExceed:
         assert session.last_context_tokens == 0
 
 
-class TestMaxContextTokensConfig:
-    """SESSION_MAX_CONTEXT_TOKENS 配置项验证。"""
+class TestContextThresholdsConfig:
+    """SESSION_CONTEXT_SOFT/HARD_THRESHOLD 配置项验证。"""
 
-    def test_config_exists_and_default(self):
-        from brain.config import SESSION_MAX_CONTEXT_TOKENS
-        assert SESSION_MAX_CONTEXT_TOKENS == 200000
+    def test_soft_threshold_default(self):
+        from brain.config import SESSION_CONTEXT_SOFT_THRESHOLD
+        assert SESSION_CONTEXT_SOFT_THRESHOLD == 160000
+
+    def test_hard_threshold_default(self):
+        from brain.config import SESSION_CONTEXT_HARD_THRESHOLD
+        assert SESSION_CONTEXT_HARD_THRESHOLD == 200000
 
     def test_config_imported_in_cc(self):
-        """cc.py 应导入 SESSION_MAX_CONTEXT_TOKENS。"""
-        assert hasattr(cc, "SESSION_MAX_CONTEXT_TOKENS") or "SESSION_MAX_CONTEXT_TOKENS" in dir(cc)
-        # 通过 import 检查
-        from brain.config import SESSION_MAX_CONTEXT_TOKENS as cfg_val
-        assert cfg_val > 0
+        """cc.py 应导入 SESSION_CONTEXT_HARD_THRESHOLD 和 SESSION_CONTEXT_SOFT_THRESHOLD。"""
+        assert hasattr(cc, "SESSION_CONTEXT_HARD_THRESHOLD") or "SESSION_CONTEXT_HARD_THRESHOLD" in dir(cc)
+        assert hasattr(cc, "SESSION_CONTEXT_SOFT_THRESHOLD") or "SESSION_CONTEXT_SOFT_THRESHOLD" in dir(cc)
