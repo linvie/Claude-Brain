@@ -76,6 +76,39 @@ class _LiveSession:
             return "warm"
         return "cold"
 
+    async def _compact_session(self, on_stream=None) -> bool:
+        """Warm 策略：通过 /compact 压缩 context，降低 cache write 成本。
+
+        Returns:
+            True 如果 compact 成功完成，False 如果失败（调用方应降级跳过）。
+        """
+        if not self.client or not self._connected:
+            return False
+
+        log_cc.info("Warm compact 开始: channel=%s", self.channel_id)
+
+        if on_stream:
+            try:
+                await on_stream("🔄 正在整理上下文，请稍候…")
+            except Exception:
+                pass
+
+        try:
+            await self.client.query("/compact")
+            # 消费 compact 的响应流
+            async for message in self.client.receive_response():
+                if isinstance(message, ResultMessage):
+                    log_cc.info(
+                        "Warm compact 完成: channel=%s, session=%s",
+                        self.channel_id, getattr(message, "session_id", None),
+                    )
+                    break
+            self.last_activity = time.time()
+            return True
+        except Exception:
+            log_cc.warning("Warm compact 失败（降级跳过）: channel=%s", self.channel_id, exc_info=True)
+            return False
+
     def _build_options(self, resume: str | None = None) -> ClaudeAgentOptions:
         # 始终使用 claude_code preset，确保 CC 完整加载
         # CLAUDE.md、skills、hooks、commands 等 workspace 配置
@@ -309,6 +342,8 @@ class _LiveSession:
         on_stream=None,
     ) -> tuple[str | None, str, dict]:
         """单次 query（不带重试）。返回 (session_id, result_text, metadata)。"""
+        # 在连接前检测温度（基于上次活动时间）
+        temperature = self._get_session_temperature()
         self.last_activity = time.time()
 
         try:
@@ -316,6 +351,12 @@ class _LiveSession:
         except Exception:
             log_cc.exception("CC 连接失败: channel=%s", self.channel_id)
             return await self._fallback_query(prompt, resume, on_stream)
+
+        # Warm 策略：缓存已过期，先 compact 压缩 context 再发用户消息
+        if temperature == "warm" and self._connected:
+            log_cc.info("Session 温度 warm，触发 compact: channel=%s", self.channel_id)
+            await self._compact_session(on_stream=on_stream)
+            # compact 失败不阻塞，继续发送用户消息
 
         log_cc.info("CC query: channel=%s, connected=%s, prompt=%s",
                     self.channel_id, self._connected, prompt[:80])
