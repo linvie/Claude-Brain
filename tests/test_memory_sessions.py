@@ -278,6 +278,7 @@ class TestQueryOnceMessageCount:
     async def test_calls_record_message_count_on_success(self):
         session = cc._LiveSession("ch-qo", Path("/tmp"), "")
         session._connected = True
+        session.last_activity = time.time() - 1  # hot: avoid cold reset path
         session.client = AsyncMock()
 
         # Mock the SDK query + receive_response flow
@@ -308,6 +309,7 @@ class TestQueryOnceMessageCount:
     async def test_skips_when_no_session_id(self):
         session = cc._LiveSession("ch-no-sid", Path("/tmp"), "")
         session._connected = True
+        session.last_activity = time.time() - 1  # hot: avoid cold reset path
         session.client = AsyncMock()
 
         from claude_agent_sdk import ResultMessage

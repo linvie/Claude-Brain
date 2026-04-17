@@ -22,12 +22,16 @@ from claude_agent_sdk import (
 )
 
 from brain.config import (
+    MEMORY_ALWAYS_ON_THRESHOLD,
     MEMORY_ENABLED,
     SESSION_IDLE_TIMEOUT,
     SESSION_RESET_THRESHOLD,
     SESSION_WARM_THRESHOLD,
 )
 from brain.infra.logger import log_cc
+
+# Cold reset 时注入 always-on 记忆的 token 预算（≈ 8000 字符）
+_MEMORY_INJECT_CHAR_BUDGET = 8000
 
 # channel_id → _LiveSession
 _sessions: dict[str, _LiveSession] = {}
@@ -108,6 +112,76 @@ class _LiveSession:
         except Exception:
             log_cc.warning("Warm compact 失败（降级跳过）: channel=%s", self.channel_id, exc_info=True)
             return False
+
+    async def _reset_session(self, on_stream=None):
+        """Cold 策略：断开旧 session，清除 session_id，准备创建全新 session。
+
+        流程：
+        1. 断开当前连接（触发 JSONL 归档 + 记忆提取）
+        2. 清除 session_id 和 _db_session_id，使下次 _ensure_connected 创建全新 session
+        """
+        log_cc.info("Cold reset 开始: channel=%s, old_session=%s", self.channel_id, self.session_id)
+
+        if on_stream:
+            try:
+                await on_stream("🔄 对话已久未活动，正在重置会话…")
+            except Exception:
+                pass
+
+        # 断开当前连接（触发正常 disconnect 流程）
+        await self._disconnect()
+
+        # 清除 session 标识，使下次连接创建全新 session（不 resume）
+        self.session_id = None
+        self._db_session_id = None
+
+        log_cc.info("Cold reset 完成: channel=%s", self.channel_id)
+
+    def _build_memory_append(self) -> str:
+        """查询 always-on 记忆（importance >= 阈值），格式化为 system_append 片段。
+
+        Returns:
+            格式化的记忆文本，token 预算不超过 ~2000 tokens（8000 字符）。
+            无记忆时返回空字符串。
+        """
+        if not MEMORY_ENABLED:
+            return ""
+
+        try:
+            from brain.infra.db import get_db
+
+            conn = get_db()
+            rows = conn.execute(
+                """SELECT type, content, importance
+                   FROM memories
+                   WHERE importance >= ?
+                   ORDER BY importance DESC, created_at DESC""",
+                (MEMORY_ALWAYS_ON_THRESHOLD,),
+            ).fetchall()
+
+            if not rows:
+                return ""
+
+            lines = ["\n\n## 用户记忆（来自历史对话）\n"]
+            char_count = len(lines[0])
+
+            for row in rows:
+                line = f"- [{row['type']}] {row['content']}"
+                if char_count + len(line) + 1 > _MEMORY_INJECT_CHAR_BUDGET:
+                    lines.append("...(记忆已截断)")
+                    break
+                lines.append(line)
+                char_count += len(line) + 1  # +1 for newline
+
+            result = "\n".join(lines)
+            log_cc.info(
+                "Cold reset 记忆注入: channel=%s, %d/%d 条记忆, %d 字符",
+                self.channel_id, len(lines) - 1, len(rows), len(result),
+            )
+            return result
+        except Exception:
+            log_cc.warning("Cold reset 记忆查询失败（跳过注入）: channel=%s", self.channel_id, exc_info=True)
+            return ""
 
     def _build_options(self, resume: str | None = None) -> ClaudeAgentOptions:
         # 始终使用 claude_code preset，确保 CC 完整加载
@@ -352,8 +426,23 @@ class _LiveSession:
             log_cc.exception("CC 连接失败: channel=%s", self.channel_id)
             return await self._fallback_query(prompt, resume, on_stream)
 
+        # Cold 策略：session 长时间未活动，reset + 记忆注入
+        if temperature == "cold" and self._connected:
+            log_cc.info("Session 温度 cold，触发 reset: channel=%s", self.channel_id)
+            await self._reset_session(on_stream=on_stream)
+            # 注入 always-on 记忆到 system_append
+            memory_append = self._build_memory_append()
+            if memory_append:
+                self._system_append += memory_append
+            # reset 后需要重新连接（不 resume，创建全新 session）
+            try:
+                await self._ensure_connected(resume=None)
+            except Exception:
+                log_cc.exception("Cold reset 后重连失败: channel=%s", self.channel_id)
+                return await self._fallback_query(prompt, resume, on_stream)
+
         # Warm 策略：缓存已过期，先 compact 压缩 context 再发用户消息
-        if temperature == "warm" and self._connected:
+        elif temperature == "warm" and self._connected:
             log_cc.info("Session 温度 warm，触发 compact: channel=%s", self.channel_id)
             await self._compact_session(on_stream=on_stream)
             # compact 失败不阻塞，继续发送用户消息
