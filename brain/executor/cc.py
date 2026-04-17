@@ -25,6 +25,7 @@ from brain.config import (
     MEMORY_ALWAYS_ON_THRESHOLD,
     MEMORY_ENABLED,
     SESSION_IDLE_TIMEOUT,
+    SESSION_MAX_CONTEXT_TOKENS,
     SESSION_RESET_THRESHOLD,
     SESSION_WARM_THRESHOLD,
 )
@@ -62,6 +63,7 @@ class _LiveSession:
         self.model: str | None = None  # 当前模型（用户可通过 /model 切换）
         self.total_cost: float = 0.0   # 累计费用
         self.total_queries: int = 0    # 累计查询数
+        self.last_context_tokens: int = 0  # 上次 query 的 context token 数
 
     def _get_session_temperature(self) -> str:
         """根据距上次活动的时间间隔判断 session 温度。
@@ -79,6 +81,34 @@ class _LiveSession:
         if idle < SESSION_RESET_THRESHOLD:
             return "warm"
         return "cold"
+
+    def _update_context_tokens(self, message: ResultMessage):
+        """从 ResultMessage.usage 读取 input_tokens 更新 last_context_tokens。
+
+        如果 SDK 不提供 usage 字段，用 JSONL 文件大小 * 0.3 估算。
+        """
+        usage = getattr(message, "usage", None)
+        if usage and isinstance(usage, dict):
+            input_tokens = usage.get("input_tokens", 0)
+            if input_tokens:
+                self.last_context_tokens = int(input_tokens)
+                return
+
+        # 备选方案：JSONL 文件大小 * 0.3 估算
+        estimated = self._estimate_tokens_from_jsonl()
+        if estimated > 0:
+            self.last_context_tokens = estimated
+            log_cc.debug(
+                "Token 估算（JSONL）: channel=%s, estimated=%d",
+                self.channel_id, estimated,
+            )
+
+    def _estimate_tokens_from_jsonl(self) -> int:
+        """从 SDK JSONL 文件大小估算 token 数（1 byte ≈ 0.3 token）。"""
+        jsonl_path = self._find_sdk_jsonl()
+        if jsonl_path and jsonl_path.exists():
+            return int(jsonl_path.stat().st_size * 0.3)
+        return 0
 
     async def _compact_session(self, on_stream=None) -> bool:
         """Warm 策略：通过 /compact 压缩 context，降低 cache write 成本。
@@ -426,8 +456,21 @@ class _LiveSession:
             log_cc.exception("CC 连接失败: channel=%s", self.channel_id)
             return await self._fallback_query(prompt, resume, on_stream)
 
+        # Context 安全网：token 超限时强制 compact（优先级高于温度策略）
+        if (
+            self.last_context_tokens > SESSION_MAX_CONTEXT_TOKENS
+            and self._connected
+        ):
+            log_cc.info(
+                "Context 超限，强制 compact: channel=%s, tokens=%d, max=%d",
+                self.channel_id, self.last_context_tokens, SESSION_MAX_CONTEXT_TOKENS,
+            )
+            compacted = await self._compact_session(on_stream=on_stream)
+            if compacted:
+                self.last_context_tokens = 0  # compact 后重置，等下次 query 更新
+            # 强制 compact 后跳过温度策略
         # Cold 策略：session 长时间未活动，reset + 记忆注入
-        if temperature == "cold" and self._connected:
+        elif temperature == "cold" and self._connected:
             log_cc.info("Session 温度 cold，触发 reset: channel=%s", self.channel_id)
             await self._reset_session(on_stream=on_stream)
             # 注入 always-on 记忆到 system_append
@@ -488,6 +531,8 @@ class _LiveSession:
                     cost = getattr(message, "total_cost_usd", 0) or 0
                     self.total_cost += cost
                     self.total_queries += 1
+                    # Token 追踪：从 usage 读取 input_tokens
+                    self._update_context_tokens(message)
                     metadata = {
                         "duration_ms": getattr(message, "duration_ms", 0) or 0,
                         "model": model_name,
@@ -495,8 +540,8 @@ class _LiveSession:
                         "num_turns": getattr(message, "num_turns", 0) or 0,
                     }
                     log_cc.info(
-                        "CC 完成: session=%s, cost=$%.4f, result=%s",
-                        session_id, cost, result_text[:100],
+                        "CC 完成: session=%s, cost=$%.4f, ctx_tokens=%d, result=%s",
+                        session_id, cost, self.last_context_tokens, result_text[:100],
                     )
         except Exception:
             log_cc.exception("CC query 异常: channel=%s", self.channel_id)
