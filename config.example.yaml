@@ -68,9 +68,17 @@ feishu:
   allowed_users: []        # 授权用户 open_id 列表（空 = 不限制）
 
 # ── Session 管理 ──
+# 三层策略基于距上次活动的时间间隔自动优化 prompt caching 成本：
+#   Hot  (< warm_threshold)  → 直接复用，缓存仍有效
+#   Warm (warm ~ reset)      → 先 /compact 压缩 context，减少 cache write 成本
+#   Cold (≥ reset_threshold) → reset session + 注入 always-on 记忆，重新开始
+# 另有 context 安全网：token 超限时不论温度均强制 compact。
 session:
-  idle_timeout: 600        # 空闲多久后 hibernate（秒），默认 10 分钟
-  max_age: 604800          # session 最大存活时间（秒），默认 7 天
+  idle_timeout: 600          # 空闲多久后 hibernate（秒），默认 10 分钟
+  max_age: 604800            # session 最大存活时间（秒），默认 7 天
+  warm_threshold_minutes: 5  # 热→温 边界（分钟），= Anthropic prompt cache TTL
+  reset_threshold_hours: 2   # 温→冷 边界（小时），超过则 reset + 注入记忆
+  max_context_tokens: 200000 # 强制 compact 阈值（tokens），防止 context 无限增长
 
 # ── 记忆系统 ──
 memory:

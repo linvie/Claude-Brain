@@ -71,6 +71,9 @@ NOTION_MCP_NAME = _notion_cfg.get("mcp_name", "notion")
 _session_cfg = CONFIG.get("session", {})
 SESSION_IDLE_TIMEOUT = _session_cfg.get("idle_timeout", 600)
 SESSION_MAX_AGE = _session_cfg.get("max_age", 604800)
+SESSION_WARM_THRESHOLD = _session_cfg.get("warm_threshold_minutes", 5) * 60  # 默认 300 秒
+SESSION_RESET_THRESHOLD = _session_cfg.get("reset_threshold_hours", 2) * 3600  # 默认 7200 秒
+SESSION_MAX_CONTEXT_TOKENS = _session_cfg.get("max_context_tokens", 200000)
 
 # v2: 记忆配置
 _memory_cfg = CONFIG.get("memory", {})

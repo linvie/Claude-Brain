@@ -21,8 +21,18 @@ from claude_agent_sdk import (
     TextBlock,
 )
 
-from brain.config import MEMORY_ENABLED, SESSION_IDLE_TIMEOUT
+from brain.config import (
+    MEMORY_ALWAYS_ON_THRESHOLD,
+    MEMORY_ENABLED,
+    SESSION_IDLE_TIMEOUT,
+    SESSION_MAX_CONTEXT_TOKENS,
+    SESSION_RESET_THRESHOLD,
+    SESSION_WARM_THRESHOLD,
+)
 from brain.infra.logger import log_cc
+
+# Cold reset 时注入 always-on 记忆的 token 预算（≈ 8000 字符）
+_MEMORY_INJECT_CHAR_BUDGET = 8000
 
 # channel_id → _LiveSession
 _sessions: dict[str, _LiveSession] = {}
@@ -53,6 +63,155 @@ class _LiveSession:
         self.model: str | None = None  # 当前模型（用户可通过 /model 切换）
         self.total_cost: float = 0.0   # 累计费用
         self.total_queries: int = 0    # 累计查询数
+        self.last_context_tokens: int = 0  # 上次 query 的 context token 数
+
+    def _get_session_temperature(self) -> str:
+        """根据距上次活动的时间间隔判断 session 温度。
+
+        Returns:
+            "hot"  — 间隔 < SESSION_WARM_THRESHOLD（缓存仍在 TTL 内）
+            "warm" — SESSION_WARM_THRESHOLD ≤ 间隔 < SESSION_RESET_THRESHOLD
+            "cold" — 间隔 ≥ SESSION_RESET_THRESHOLD
+        """
+        if self.last_activity <= 0:
+            return "cold"
+        idle = time.time() - self.last_activity
+        if idle < SESSION_WARM_THRESHOLD:
+            return "hot"
+        if idle < SESSION_RESET_THRESHOLD:
+            return "warm"
+        return "cold"
+
+    def _update_context_tokens(self, message: ResultMessage):
+        """从 ResultMessage.usage 读取 input_tokens 更新 last_context_tokens。
+
+        如果 SDK 不提供 usage 字段，用 JSONL 文件大小 * 0.3 估算。
+        """
+        usage = getattr(message, "usage", None)
+        if usage and isinstance(usage, dict):
+            input_tokens = usage.get("input_tokens", 0)
+            if input_tokens:
+                self.last_context_tokens = int(input_tokens)
+                return
+
+        # 备选方案：JSONL 文件大小 * 0.3 估算
+        estimated = self._estimate_tokens_from_jsonl()
+        if estimated > 0:
+            self.last_context_tokens = estimated
+            log_cc.debug(
+                "Token 估算（JSONL）: channel=%s, estimated=%d",
+                self.channel_id, estimated,
+            )
+
+    def _estimate_tokens_from_jsonl(self) -> int:
+        """从 SDK JSONL 文件大小估算 token 数（1 byte ≈ 0.3 token）。"""
+        jsonl_path = self._find_sdk_jsonl()
+        if jsonl_path and jsonl_path.exists():
+            return int(jsonl_path.stat().st_size * 0.3)
+        return 0
+
+    async def _compact_session(self, on_stream=None) -> bool:
+        """Warm 策略：通过 /compact 压缩 context，降低 cache write 成本。
+
+        Returns:
+            True 如果 compact 成功完成，False 如果失败（调用方应降级跳过）。
+        """
+        if not self.client or not self._connected:
+            return False
+
+        log_cc.info("Warm compact 开始: channel=%s", self.channel_id)
+
+        if on_stream:
+            try:
+                await on_stream("🔄 正在整理上下文，请稍候…")
+            except Exception:
+                pass
+
+        try:
+            await self.client.query("/compact")
+            # 消费 compact 的响应流
+            async for message in self.client.receive_response():
+                if isinstance(message, ResultMessage):
+                    log_cc.info(
+                        "Warm compact 完成: channel=%s, session=%s",
+                        self.channel_id, getattr(message, "session_id", None),
+                    )
+                    break
+            self.last_activity = time.time()
+            return True
+        except Exception:
+            log_cc.warning("Warm compact 失败（降级跳过）: channel=%s", self.channel_id, exc_info=True)
+            return False
+
+    async def _reset_session(self, on_stream=None):
+        """Cold 策略：断开旧 session，清除 session_id，准备创建全新 session。
+
+        流程：
+        1. 断开当前连接（触发 JSONL 归档 + 记忆提取）
+        2. 清除 session_id 和 _db_session_id，使下次 _ensure_connected 创建全新 session
+        """
+        log_cc.info("Cold reset 开始: channel=%s, old_session=%s", self.channel_id, self.session_id)
+
+        if on_stream:
+            try:
+                await on_stream("🔄 对话已久未活动，正在重置会话…")
+            except Exception:
+                pass
+
+        # 断开当前连接（触发正常 disconnect 流程）
+        await self._disconnect()
+
+        # 清除 session 标识，使下次连接创建全新 session（不 resume）
+        self.session_id = None
+        self._db_session_id = None
+
+        log_cc.info("Cold reset 完成: channel=%s", self.channel_id)
+
+    def _build_memory_append(self) -> str:
+        """查询 always-on 记忆（importance >= 阈值），格式化为 system_append 片段。
+
+        Returns:
+            格式化的记忆文本，token 预算不超过 ~2000 tokens（8000 字符）。
+            无记忆时返回空字符串。
+        """
+        if not MEMORY_ENABLED:
+            return ""
+
+        try:
+            from brain.infra.db import get_db
+
+            conn = get_db()
+            rows = conn.execute(
+                """SELECT type, content, importance
+                   FROM memories
+                   WHERE importance >= ?
+                   ORDER BY importance DESC, created_at DESC""",
+                (MEMORY_ALWAYS_ON_THRESHOLD,),
+            ).fetchall()
+
+            if not rows:
+                return ""
+
+            lines = ["\n\n## 用户记忆（来自历史对话）\n"]
+            char_count = len(lines[0])
+
+            for row in rows:
+                line = f"- [{row['type']}] {row['content']}"
+                if char_count + len(line) + 1 > _MEMORY_INJECT_CHAR_BUDGET:
+                    lines.append("...(记忆已截断)")
+                    break
+                lines.append(line)
+                char_count += len(line) + 1  # +1 for newline
+
+            result = "\n".join(lines)
+            log_cc.info(
+                "Cold reset 记忆注入: channel=%s, %d/%d 条记忆, %d 字符",
+                self.channel_id, len(lines) - 1, len(rows), len(result),
+            )
+            return result
+        except Exception:
+            log_cc.warning("Cold reset 记忆查询失败（跳过注入）: channel=%s", self.channel_id, exc_info=True)
+            return ""
 
     def _build_options(self, resume: str | None = None) -> ClaudeAgentOptions:
         # 始终使用 claude_code preset，确保 CC 完整加载
@@ -287,6 +446,8 @@ class _LiveSession:
         on_stream=None,
     ) -> tuple[str | None, str, dict]:
         """单次 query（不带重试）。返回 (session_id, result_text, metadata)。"""
+        # 在连接前检测温度（基于上次活动时间）
+        temperature = self._get_session_temperature()
         self.last_activity = time.time()
 
         try:
@@ -294,6 +455,40 @@ class _LiveSession:
         except Exception:
             log_cc.exception("CC 连接失败: channel=%s", self.channel_id)
             return await self._fallback_query(prompt, resume, on_stream)
+
+        # Context 安全网：token 超限时强制 compact（优先级高于温度策略）
+        if (
+            self.last_context_tokens > SESSION_MAX_CONTEXT_TOKENS
+            and self._connected
+        ):
+            log_cc.info(
+                "Context 超限，强制 compact: channel=%s, tokens=%d, max=%d",
+                self.channel_id, self.last_context_tokens, SESSION_MAX_CONTEXT_TOKENS,
+            )
+            compacted = await self._compact_session(on_stream=on_stream)
+            if compacted:
+                self.last_context_tokens = 0  # compact 后重置，等下次 query 更新
+            # 强制 compact 后跳过温度策略
+        # Cold 策略：session 长时间未活动，reset + 记忆注入
+        elif temperature == "cold" and self._connected:
+            log_cc.info("Session 温度 cold，触发 reset: channel=%s", self.channel_id)
+            await self._reset_session(on_stream=on_stream)
+            # 注入 always-on 记忆到 system_append
+            memory_append = self._build_memory_append()
+            if memory_append:
+                self._system_append += memory_append
+            # reset 后需要重新连接（不 resume，创建全新 session）
+            try:
+                await self._ensure_connected(resume=None)
+            except Exception:
+                log_cc.exception("Cold reset 后重连失败: channel=%s", self.channel_id)
+                return await self._fallback_query(prompt, resume, on_stream)
+
+        # Warm 策略：缓存已过期，先 compact 压缩 context 再发用户消息
+        elif temperature == "warm" and self._connected:
+            log_cc.info("Session 温度 warm，触发 compact: channel=%s", self.channel_id)
+            await self._compact_session(on_stream=on_stream)
+            # compact 失败不阻塞，继续发送用户消息
 
         log_cc.info("CC query: channel=%s, connected=%s, prompt=%s",
                     self.channel_id, self._connected, prompt[:80])
@@ -336,6 +531,8 @@ class _LiveSession:
                     cost = getattr(message, "total_cost_usd", 0) or 0
                     self.total_cost += cost
                     self.total_queries += 1
+                    # Token 追踪：从 usage 读取 input_tokens
+                    self._update_context_tokens(message)
                     metadata = {
                         "duration_ms": getattr(message, "duration_ms", 0) or 0,
                         "model": model_name,
@@ -343,8 +540,8 @@ class _LiveSession:
                         "num_turns": getattr(message, "num_turns", 0) or 0,
                     }
                     log_cc.info(
-                        "CC 完成: session=%s, cost=$%.4f, result=%s",
-                        session_id, cost, result_text[:100],
+                        "CC 完成: session=%s, cost=$%.4f, ctx_tokens=%d, result=%s",
+                        session_id, cost, self.last_context_tokens, result_text[:100],
                     )
         except Exception:
             log_cc.exception("CC query 异常: channel=%s", self.channel_id)

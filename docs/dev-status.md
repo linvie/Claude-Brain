@@ -1,6 +1,6 @@
 # CCBrain 开发状态
 
-最后更新：2026-04-16
+最后更新：2026-04-17
 
 ---
 
@@ -112,6 +112,20 @@
 - 飞书交互卡片（card.action.trigger 回调 → 按钮/表单转文本 IncomingMessage）
 - /ask skill 模板（CC 自由构造卡片 JSON）
 - 263 个测试通过
+
+### v0.16.x — v0.20.x — Session 生命周期优化
+基于 Anthropic prompt caching TTL（5 分钟）设计三层 session 策略，自动优化每条消息的 cache write 成本。
+
+- **Session 温度判断** `_get_session_temperature()`：根据 `time.time() - last_activity` 判断 hot/warm/cold
+- **Hot 策略**（< 5 分钟）：直接复用 session，prompt cache 仍有效，成本最低
+- **Warm 策略**（5 分钟 ~ 2 小时）：query 前自动 `/compact` 压缩 context，降低 cache write 成本
+- **Cold 策略**（≥ 2 小时）：reset session + 注入 always-on 记忆（importance >= 8），重新开始
+- **Context 安全网**：从 ResultMessage.usage 追踪 input_tokens，超过 200k 时不论温度强制 compact
+  - 备选方案：JSONL 文件大小 * 0.3 估算 token 数
+- 配置项：`session.warm_threshold_minutes`、`session.reset_threshold_hours`、`session.max_context_tokens`
+- compact 失败不阻塞用户 query（降级跳过）
+- 31 个集成测试覆盖端到端流程 + 390 测试通过
+- 详见 `docs/tech_plan.md`
 
 ---
 
