@@ -104,7 +104,12 @@ async def extract_from_session(
 
 
 def _parse_jsonl(jsonl_path: Path) -> list[tuple[str, str]]:
-    """解析 JSONL 文件，返回 [(role, text), ...] 列表。"""
+    """解析 JSONL 文件，返回 [(role, text), ...] 列表。
+
+    兼容两种 schema：
+    - 旧 schema: {"role": "user", "content": "..."}
+    - 新 SDK schema: {"type": "user", "message": {"role": "user", "content": "..."}, ...}
+    """
     conversation: list[tuple[str, str]] = []
     try:
         with open(jsonl_path) as f:
@@ -117,28 +122,52 @@ def _parse_jsonl(jsonl_path: Path) -> list[tuple[str, str]]:
                 except json.JSONDecodeError:
                     continue
 
+                # 旧 schema: role 直接在顶层
                 role = entry.get("role", "")
-                if role not in ("user", "assistant"):
+                if role in ("user", "assistant"):
+                    text = _extract_text_from_entry(entry)
+                    if text:
+                        conversation.append((role, text))
                     continue
 
-                text = _extract_text_from_entry(entry)
-                if text:
-                    conversation.append((role, text))
+                # 新 SDK schema: role 在 entry.message.role，
+                # 或 entry.type 为 "user"/"assistant"
+                msg = entry.get("message")
+                if isinstance(msg, dict):
+                    role = msg.get("role", "")
+                    if role in ("user", "assistant"):
+                        text = _extract_text_from_entry(msg)
+                        if text:
+                            conversation.append((role, text))
+                        continue
+
+                # fallback: entry.type 作为 role（无 message 子对象时）
+                entry_type = entry.get("type", "")
+                if entry_type in ("user", "assistant"):
+                    text = _extract_text_from_entry(entry)
+                    if text:
+                        conversation.append((entry_type, text))
     except Exception:
         log.exception("[extractor] JSONL 读取失败: %s", jsonl_path)
     return conversation
 
 
 def _extract_text_from_entry(entry: dict) -> str:
-    """从 JSONL entry 提取纯文本内容。"""
+    """从 JSONL entry 提取纯文本内容。
+
+    content 为 list 时只保留 type=='text' 的 block，
+    忽略 type=='thinking'、type=='tool_use' 等非文本 block。
+    """
     content = entry.get("content", "")
     if isinstance(content, str):
         return content.strip()
     if isinstance(content, list):
         parts = []
         for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                parts.append(block.get("text", ""))
+            if isinstance(block, dict):
+                if block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+                # 跳过 thinking / tool_use / tool_result 等
             elif isinstance(block, str):
                 parts.append(block)
         return " ".join(parts).strip()
