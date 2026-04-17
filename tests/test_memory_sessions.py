@@ -193,6 +193,33 @@ class TestFindSdkJsonl:
         result = session._find_sdk_jsonl()
         assert result is None
 
+    def test_finds_jsonl_when_cwd_contains_dots_and_underscores(self, tmp_path):
+        """cwd 含 '.' 和 '_' 时 glob 仍能定位 JSONL（旧 replace('/') 会失败）。"""
+        workspace = tmp_path / ".ccbrain" / "workspaces" / "oc_9faed4a6"
+        workspace.mkdir(parents=True)
+        session = cc._LiveSession("ch1", workspace, "")
+        session.session_id = "sid-uuid-1234"
+
+        # SDK 实际规则：所有非字母数字 → '-'
+        import re
+        cwd_resolved = str(workspace.resolve())
+        sdk_hash = re.sub(r"[^a-zA-Z0-9]", "-", cwd_resolved)
+        project_dir = Path.home() / ".claude" / "projects" / sdk_hash
+        project_dir.mkdir(parents=True, exist_ok=True)
+        jsonl_file = project_dir / "sid-uuid-1234.jsonl"
+        jsonl_file.write_text('{"msg": "test"}\n')
+
+        try:
+            result = session._find_sdk_jsonl()
+            assert result is not None
+            assert result.name == "sid-uuid-1234.jsonl"
+        finally:
+            jsonl_file.unlink(missing_ok=True)
+            try:
+                project_dir.rmdir()
+            except OSError:
+                pass
+
 
 class TestInitV2TablesCallsMemorySessions:
     """_init_v2_tables 应调用 _init_memory_sessions。"""
