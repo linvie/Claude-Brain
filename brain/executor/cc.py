@@ -21,7 +21,12 @@ from claude_agent_sdk import (
     TextBlock,
 )
 
-from brain.config import MEMORY_ENABLED, SESSION_IDLE_TIMEOUT
+from brain.config import (
+    MEMORY_ENABLED,
+    SESSION_IDLE_TIMEOUT,
+    SESSION_RESET_THRESHOLD,
+    SESSION_WARM_THRESHOLD,
+)
 from brain.infra.logger import log_cc
 
 # channel_id → _LiveSession
@@ -53,6 +58,23 @@ class _LiveSession:
         self.model: str | None = None  # 当前模型（用户可通过 /model 切换）
         self.total_cost: float = 0.0   # 累计费用
         self.total_queries: int = 0    # 累计查询数
+
+    def _get_session_temperature(self) -> str:
+        """根据距上次活动的时间间隔判断 session 温度。
+
+        Returns:
+            "hot"  — 间隔 < SESSION_WARM_THRESHOLD（缓存仍在 TTL 内）
+            "warm" — SESSION_WARM_THRESHOLD ≤ 间隔 < SESSION_RESET_THRESHOLD
+            "cold" — 间隔 ≥ SESSION_RESET_THRESHOLD
+        """
+        if self.last_activity <= 0:
+            return "cold"
+        idle = time.time() - self.last_activity
+        if idle < SESSION_WARM_THRESHOLD:
+            return "hot"
+        if idle < SESSION_RESET_THRESHOLD:
+            return "warm"
+        return "cold"
 
     def _build_options(self, resume: str | None = None) -> ClaudeAgentOptions:
         # 始终使用 claude_code preset，确保 CC 完整加载

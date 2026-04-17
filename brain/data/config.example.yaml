@@ -72,6 +72,9 @@ feishu:
 session:
   idle_timeout: 600        # 空闲多久后 hibernate（秒），默认 10 分钟
   max_age: 604800          # session 最大存活时间（秒），默认 7 天
+  warm_threshold_minutes: 5  # 热→温 边界（分钟），= prompt cache TTL
+  reset_threshold_hours: 2   # 温→冷 边界（小时），超过则 reset session
+  max_context_tokens: 200000 # 强制 compact 阈值（tokens）
 
 # ── 记忆系统 ──
 memory:
