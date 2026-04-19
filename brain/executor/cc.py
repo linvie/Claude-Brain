@@ -24,8 +24,9 @@ from claude_agent_sdk import (
 from brain.config import (
     MEMORY_ALWAYS_ON_THRESHOLD,
     MEMORY_ENABLED,
+    SESSION_CONTEXT_HARD_THRESHOLD,
+    SESSION_CONTEXT_SOFT_THRESHOLD,
     SESSION_IDLE_TIMEOUT,
-    SESSION_MAX_CONTEXT_TOKENS,
     SESSION_RESET_THRESHOLD,
     SESSION_WARM_THRESHOLD,
 )
@@ -457,19 +458,37 @@ class _LiveSession:
             log_cc.exception("CC 连接失败: channel=%s", self.channel_id)
             return await self._fallback_query(prompt, resume, on_stream)
 
-        # Context 安全网：token 超限时强制 compact（优先级高于温度策略）
+        # Context 安全网：硬阈值强制 compact（优先级高于温度策略）
         if (
-            self.last_context_tokens > SESSION_MAX_CONTEXT_TOKENS
+            self.last_context_tokens > SESSION_CONTEXT_HARD_THRESHOLD
             and self._connected
         ):
             log_cc.info(
-                "Context 超限，强制 compact: channel=%s, tokens=%d, max=%d",
-                self.channel_id, self.last_context_tokens, SESSION_MAX_CONTEXT_TOKENS,
+                "Context 超硬阈值，强制 compact: channel=%s, tokens=%d, hard=%d",
+                self.channel_id, self.last_context_tokens, SESSION_CONTEXT_HARD_THRESHOLD,
             )
             compacted = await self._compact_session(on_stream=on_stream)
             if compacted:
                 self.last_context_tokens = 0  # compact 后重置，等下次 query 更新
-            # 强制 compact 后跳过温度策略
+            else:
+                log_cc.warning(
+                    "硬阈值 compact 失败，建议 reset: channel=%s, tokens=%d",
+                    self.channel_id, self.last_context_tokens,
+                )
+            # 硬阈值 compact 后跳过温度策略
+        # Context 软阈值：触发一次 compact 尝试（不阻塞，失败继续）
+        elif (
+            self.last_context_tokens > SESSION_CONTEXT_SOFT_THRESHOLD
+            and self._connected
+        ):
+            log_cc.info(
+                "Context 超软阈值，尝试 compact: channel=%s, tokens=%d, soft=%d",
+                self.channel_id, self.last_context_tokens, SESSION_CONTEXT_SOFT_THRESHOLD,
+            )
+            compacted = await self._compact_session(on_stream=on_stream)
+            if compacted:
+                self.last_context_tokens = 0
+            # 软阈值 compact 后跳过温度策略
         # Cold 策略：session 长时间未活动，reset + 记忆注入
         elif temperature == "cold" and self._connected:
             log_cc.info("Session 温度 cold，触发 reset: channel=%s", self.channel_id)

@@ -16,10 +16,7 @@ import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-from brain.executor.cc import _LiveSession, _MEMORY_INJECT_CHAR_BUDGET
-
+from brain.executor.cc import _MEMORY_INJECT_CHAR_BUDGET, _LiveSession
 
 # ── Helpers ──
 
@@ -149,7 +146,7 @@ class TestWarmCompactIntegration:
     async def test_warm_calls_compact_before_user_query(self):
         """warm 状态下先调用 _compact_session，然后发送用户消息。"""
         session = _make_session()
-        session.last_activity = time.time() - 360  # 6 分钟前 → warm
+        session.last_activity = time.time() - 3700  # 约 62 分钟前 → warm
 
         call_order = []
 
@@ -180,8 +177,8 @@ class TestWarmCompactIntegration:
         with (
             patch.object(session, "_compact_session", side_effect=tracked_compact),
             patch.object(session, "_ensure_connected", side_effect=tracked_ensure),
-            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 300),
-            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 7200),
+            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 3600),
+            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 14400),
             patch("brain.executor.cc.MEMORY_ENABLED", False),
         ):
             with patch("brain.executor.cc.ResultMessage", type(result_msg)):
@@ -198,7 +195,7 @@ class TestWarmCompactIntegration:
     async def test_warm_does_not_trigger_reset(self):
         """warm 状态下不触发 cold reset。"""
         session = _make_session()
-        session.last_activity = time.time() - 600  # 10 分钟前 → warm
+        session.last_activity = time.time() - 3700  # 约 62 分钟前 → warm
 
         result_msg = _make_result_msg()
 
@@ -206,8 +203,8 @@ class TestWarmCompactIntegration:
             patch.object(session, "_reset_session", new_callable=AsyncMock) as mock_reset,
             patch.object(session, "_compact_session", new_callable=AsyncMock, return_value=True),
             patch.object(session, "_ensure_connected", new_callable=AsyncMock),
-            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 300),
-            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 7200),
+            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 3600),
+            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 14400),
             patch("brain.executor.cc.MEMORY_ENABLED", False),
         ):
             _setup_connected_session(session, result_msg)
@@ -365,13 +362,13 @@ class TestColdResetIntegration:
 
 
 class TestContextExceedForceCompact:
-    """context tokens 超限时强制 compact，优先级高于温度策略。"""
+    """context tokens 超限时触发 compact（双层阈值），优先级高于温度策略。"""
 
-    async def test_force_compact_overrides_hot(self):
-        """即使温度 hot，超限也触发 compact 而非跳过。"""
+    async def test_hard_threshold_compact_overrides_hot(self):
+        """即使温度 hot，超硬阈值也触发 compact 而非跳过。"""
         session = _make_session()
         session.last_activity = time.time() - 1  # hot
-        session.last_context_tokens = 250000  # 超过 200000
+        session.last_context_tokens = 250000  # 超过硬阈值 200000
 
         result_msg = _make_result_msg(usage={"input_tokens": 50000})
 
@@ -391,11 +388,11 @@ class TestContextExceedForceCompact:
         mock_compact.assert_awaited_once()
         mock_reset.assert_not_awaited()
 
-    async def test_force_compact_overrides_cold(self):
-        """超限时走 compact 路径，不走 cold reset（安全网优先）。"""
+    async def test_hard_threshold_compact_overrides_cold(self):
+        """超硬阈值时走 compact 路径，不走 cold reset（安全网优先）。"""
         session = _make_session()
         session.last_activity = 0  # cold
-        session.last_context_tokens = 300000  # 超限
+        session.last_context_tokens = 300000  # 超硬阈值
         session._connected = True
 
         result_msg = _make_result_msg(usage={"input_tokens": 30000})
@@ -415,6 +412,29 @@ class TestContextExceedForceCompact:
 
         mock_compact.assert_awaited_once()
         mock_reset.assert_not_awaited()
+
+    async def test_soft_threshold_triggers_compact(self):
+        """超软阈值（160k-200k）时触发 compact 尝试。"""
+        session = _make_session()
+        session.last_activity = time.time() - 1  # hot
+        session.last_context_tokens = 170000  # 超软阈值 160000，低于硬阈值 200000
+
+        result_msg = _make_result_msg(usage={"input_tokens": 50000})
+
+        with (
+            patch.object(session, "_ensure_connected", new_callable=AsyncMock),
+            patch.object(
+                session, "_compact_session", new_callable=AsyncMock, return_value=True
+            ) as mock_compact,
+            patch("brain.executor.cc.MEMORY_ENABLED", False),
+        ):
+            _setup_connected_session(session, result_msg)
+            with patch("brain.executor.cc.ResultMessage", type(result_msg)):
+                with patch.object(session, "_record_message_count"):
+                    await session._query_once("test")
+
+        mock_compact.assert_awaited_once()
+        assert session.last_context_tokens == 50000  # compact 归零后被 usage 更新
 
     async def test_force_compact_resets_token_count_on_success(self):
         """compact 成功后 last_context_tokens 归零（等下次 query 重新计算）。"""
@@ -438,11 +458,11 @@ class TestContextExceedForceCompact:
         # compact 归零后被新 query 的 usage 更新
         assert session.last_context_tokens == 40000
 
-    async def test_no_force_compact_when_under_limit(self):
-        """未超限时不触发强制 compact。"""
+    async def test_no_compact_when_under_soft_limit(self):
+        """低于软阈值时不触发任何 compact。"""
         session = _make_session()
         session.last_activity = time.time() - 1  # hot
-        session.last_context_tokens = 100000  # 低于 200000
+        session.last_context_tokens = 100000  # 低于软阈值 160000
 
         result_msg = _make_result_msg()
 
@@ -468,7 +488,7 @@ class TestCompactFailureDegradation:
     async def test_warm_compact_failure_still_queries(self):
         """warm compact 失败后，用户消息仍正常发送。"""
         session = _make_session()
-        session.last_activity = time.time() - 360  # warm
+        session.last_activity = time.time() - 3700  # warm
 
         result_msg = _make_result_msg(result="response despite compact fail")
 
@@ -478,8 +498,8 @@ class TestCompactFailureDegradation:
         with (
             patch.object(session, "_compact_session", side_effect=failing_compact),
             patch.object(session, "_ensure_connected", new_callable=AsyncMock),
-            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 300),
-            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 7200),
+            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 3600),
+            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 14400),
             patch("brain.executor.cc.MEMORY_ENABLED", False),
         ):
             _setup_connected_session(session, result_msg)
@@ -553,15 +573,19 @@ class TestSessionConfigDefaults:
 
     def test_warm_threshold_default(self):
         from brain.config import SESSION_WARM_THRESHOLD
-        assert SESSION_WARM_THRESHOLD == 300  # 5 min * 60
+        assert SESSION_WARM_THRESHOLD == 3600  # 60 min * 60（对齐 prompt cache TTL 1h）
 
     def test_reset_threshold_default(self):
         from brain.config import SESSION_RESET_THRESHOLD
-        assert SESSION_RESET_THRESHOLD == 7200  # 2 hr * 3600
+        assert SESSION_RESET_THRESHOLD == 14400  # 4 hr * 3600
 
-    def test_max_context_tokens_default(self):
-        from brain.config import SESSION_MAX_CONTEXT_TOKENS
-        assert SESSION_MAX_CONTEXT_TOKENS == 200000
+    def test_context_soft_threshold_default(self):
+        from brain.config import SESSION_CONTEXT_SOFT_THRESHOLD
+        assert SESSION_CONTEXT_SOFT_THRESHOLD == 160000
+
+    def test_context_hard_threshold_default(self):
+        from brain.config import SESSION_CONTEXT_HARD_THRESHOLD
+        assert SESSION_CONTEXT_HARD_THRESHOLD == 200000
 
     def test_idle_timeout_default(self):
         from brain.config import SESSION_IDLE_TIMEOUT
@@ -585,33 +609,33 @@ class TestTemperatureBoundaries:
         session = _make_session()
         assert session._get_session_temperature() == "cold"
 
-    @patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 300)
+    @patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 3600)
     def test_exactly_at_warm_boundary(self):
         """恰好 warm_threshold 秒 → warm（含边界）。"""
         session = _make_session()
-        session.last_activity = time.time() - 300
+        session.last_activity = time.time() - 3600
         assert session._get_session_temperature() == "warm"
 
-    @patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 300)
+    @patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 3600)
     def test_one_second_below_warm_is_hot(self):
         """warm_threshold - 1 秒 → hot。"""
         session = _make_session()
-        session.last_activity = time.time() - 299
+        session.last_activity = time.time() - 3599
         assert session._get_session_temperature() == "hot"
 
-    @patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 7200)
+    @patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 14400)
     def test_exactly_at_cold_boundary(self):
         """恰好 reset_threshold 秒 → cold（含边界）。"""
         session = _make_session()
-        session.last_activity = time.time() - 7200
+        session.last_activity = time.time() - 14400
         assert session._get_session_temperature() == "cold"
 
-    @patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 300)
-    @patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 7200)
+    @patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 3600)
+    @patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 14400)
     def test_one_second_below_cold_is_warm(self):
         """reset_threshold - 1 秒 → warm。"""
         session = _make_session()
-        session.last_activity = time.time() - 7199
+        session.last_activity = time.time() - 14399
         assert session._get_session_temperature() == "warm"
 
 
@@ -626,7 +650,7 @@ class TestStrategyMutualExclusion:
         strategies = {"compact": 0, "reset": 0}
 
         session = _make_session()
-        session.last_activity = time.time() - 360  # warm
+        session.last_activity = time.time() - 3700  # warm
 
         async def count_compact(on_stream=None):
             strategies["compact"] += 1
@@ -642,8 +666,8 @@ class TestStrategyMutualExclusion:
             patch.object(session, "_compact_session", side_effect=count_compact),
             patch.object(session, "_reset_session", side_effect=count_reset),
             patch.object(session, "_ensure_connected", new_callable=AsyncMock),
-            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 300),
-            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 7200),
+            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 3600),
+            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 14400),
             patch("brain.executor.cc.MEMORY_ENABLED", False),
         ):
             _setup_connected_session(session, result_msg)
@@ -659,7 +683,7 @@ class TestStrategyMutualExclusion:
         strategies = {"force_compact": 0, "warm_compact": 0, "cold_reset": 0}
 
         session = _make_session()
-        session.last_activity = time.time() - 360  # warm
+        session.last_activity = time.time() - 3700  # warm
         session.last_context_tokens = 250000  # 超限
 
         async def mock_compact(on_stream=None):
@@ -675,8 +699,8 @@ class TestStrategyMutualExclusion:
             patch.object(session, "_ensure_connected", new_callable=AsyncMock),
             patch.object(session, "_compact_session", side_effect=mock_compact),
             patch.object(session, "_reset_session", side_effect=mock_reset),
-            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 300),
-            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 7200),
+            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 3600),
+            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 14400),
             patch("brain.executor.cc.MEMORY_ENABLED", False),
         ):
             _setup_connected_session(session, result_msg)

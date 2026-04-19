@@ -72,9 +72,10 @@ feishu:
 session:
   idle_timeout: 600        # 空闲多久后 hibernate（秒），默认 10 分钟
   max_age: 604800          # session 最大存活时间（秒），默认 7 天
-  warm_threshold_minutes: 5  # 热→温 边界（分钟），= prompt cache TTL
-  reset_threshold_hours: 2   # 温→冷 边界（小时），超过则 reset session
-  max_context_tokens: 200000 # 强制 compact 阈值（tokens）
+  warm_threshold_minutes: 60     # 热→温 边界（分钟），对齐主 Agent prompt cache TTL（1h）
+  reset_threshold_hours: 4       # 温→冷 边界（小时），cache 过期后放宽换任务边界
+  context_soft_threshold: 160000 # 软阈值（tokens），提前 compact 避开 180-200k 效率衰减区
+  context_hard_threshold: 200000 # 硬阈值（tokens），强制 compact，失败则建议 reset
 
 # ── 记忆系统 ──
 memory:

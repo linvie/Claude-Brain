@@ -10,12 +10,9 @@
 - compact 期间通过 on_stream 通知用户
 """
 
-import asyncio
 import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 from brain.executor.cc import _LiveSession
 
@@ -150,7 +147,7 @@ class TestWarmCompactInQueryOnce:
         """warm 状态时应在发送用户消息前调用 _compact_session。"""
         session = _make_session()
         # 设置为 warm 状态（6 分钟前活动）
-        session.last_activity = time.time() - 360
+        session.last_activity = time.time() - 3700
 
         call_order = []
 
@@ -174,10 +171,10 @@ class TestWarmCompactInQueryOnce:
             yield mock_result
 
         with (
-            patch.object(session, "_compact_session", side_effect=mock_compact) as compact_mock,
+            patch.object(session, "_compact_session", side_effect=mock_compact),
             patch.object(session, "_ensure_connected", side_effect=mock_ensure_connected),
-            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 300),
-            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 7200),
+            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 3600),
+            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 14400),
             patch("brain.executor.cc.MEMORY_ENABLED", False),
         ):
             # 需要设置 client 在 ensure_connected 后
@@ -197,7 +194,6 @@ class TestWarmCompactInQueryOnce:
                 session.client = mock_client
 
             with patch.object(session, "_ensure_connected", side_effect=setup_client):
-                from brain.executor.cc import ResultMessage as RM
                 with patch("brain.executor.cc.ResultMessage", type(mock_result)):
                     await session._query_once("hello user")
 
@@ -235,7 +231,6 @@ class TestWarmCompactInQueryOnce:
             mock_client.receive_response = mock_receive
             session.client = mock_client
 
-            from brain.executor.cc import ResultMessage
             with patch("brain.executor.cc.ResultMessage", type(mock_result)):
                 await session._query_once("test")
 
@@ -276,7 +271,7 @@ class TestWarmCompactInQueryOnce:
         """compact 失败后应继续正常发送用户消息。"""
         session = _make_session()
         # warm 状态
-        session.last_activity = time.time() - 360
+        session.last_activity = time.time() - 3700
 
         async def failing_compact(on_stream=None):
             return False  # compact 失败
@@ -284,8 +279,8 @@ class TestWarmCompactInQueryOnce:
         with (
             patch.object(session, "_compact_session", side_effect=failing_compact),
             patch.object(session, "_ensure_connected", new_callable=AsyncMock),
-            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 300),
-            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 7200),
+            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 3600),
+            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 14400),
             patch("brain.executor.cc.MEMORY_ENABLED", False),
         ):
             session._connected = True
@@ -314,7 +309,7 @@ class TestWarmCompactInQueryOnce:
     async def test_warm_compact_passes_on_stream(self):
         """warm compact 应将 on_stream 回调传递给 _compact_session。"""
         session = _make_session()
-        session.last_activity = time.time() - 360
+        session.last_activity = time.time() - 3700
 
         captured_on_stream = []
 
@@ -325,8 +320,8 @@ class TestWarmCompactInQueryOnce:
         with (
             patch.object(session, "_compact_session", side_effect=mock_compact),
             patch.object(session, "_ensure_connected", new_callable=AsyncMock),
-            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 300),
-            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 7200),
+            patch("brain.executor.cc.SESSION_WARM_THRESHOLD", 3600),
+            patch("brain.executor.cc.SESSION_RESET_THRESHOLD", 14400),
             patch("brain.executor.cc.MEMORY_ENABLED", False),
         ):
             session._connected = True
