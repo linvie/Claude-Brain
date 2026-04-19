@@ -4,22 +4,38 @@
 
 ## 检查项
 
-### 1. 记忆整理
+### 1. Daily View 积压检查
 
-检查 `~/.ccbrain/memory/` 目录：
-- `views/` 目录下最近的 daily view 是否正常生成
-- `ledger/` 目录下是否有未归档的 session
+通过 SQLite 查询判断是否有 session 需要生成 daily view：
 
-如果发现异常（例如 daily view 超过 2 天未生成），记录到报告中。
+```bash
+sqlite3 ~/.ccbrain/state.db "SELECT COUNT(*) FROM memory_sessions WHERE closed_at IS NOT NULL AND view_generated_at IS NULL AND closed_at < (strftime('%s','now') - 43200);"
+```
 
-### 2. 系统健康
+- 结果为 0：正常，无需报告
+- 结果 > 0：说明有超过 12 小时未生成 view 的已关闭 session，报告数量
 
-检查 `~/.ccbrain/logs/` 下的日志文件：
-- 最近 1 小时内是否有 ERROR 级别日志
-- 是否有频繁重复的 WARNING
-- cc.log 是否有 CC 进程异常退出记录
+**注意**：如果查询结果为 0 或表不存在，视为正常。用户没有对话时不会产生新 session，这是正常现象，**不要**因为 views/ 目录下没有最近日期的文件就报警。
 
-只看最近 1 小时的日志，不要回溯太远。
+### 2. 系统健康（仅最近 1 小时）
+
+**必须**使用以下命令过滤日志，只看当前小时的条目，不要用 cat/head/tail 读取整个日志文件：
+
+```bash
+grep "$(date '+%Y-%m-%d %H')" ~/.ccbrain/logs/brain.log 2>/dev/null | grep -i "ERROR" | tail -5
+```
+
+判断规则：
+- 如果上述命令无输出：正常，无需报告
+- 如果有输出：报告错误数量和最后一条错误摘要
+- **忽略**超过 1 小时的旧日志，即使它们看起来严重
+
+对于 WARNING，同样只看最近 1 小时：
+```bash
+grep "$(date '+%Y-%m-%d %H')" ~/.ccbrain/logs/brain.log 2>/dev/null | grep -i "WARNING" | wc -l
+```
+
+只有在同一小时内 WARNING 超过 10 条时才报告。
 
 ### 3. 磁盘空间
 
