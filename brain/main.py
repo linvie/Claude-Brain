@@ -213,7 +213,7 @@ async def _handle_command(incoming, adapter, conn):  # pragma: no cover
             reply_to=incoming.message_id,
         ))
         asyncio.create_task(
-            _run_background_task(incoming, adapter, conn, arg),
+            _run_background_task(incoming, adapter, arg),
             name=f"btw-{incoming.channel_id[:8]}",
         )
 
@@ -405,10 +405,14 @@ async def _run_doctor_task(incoming, adapter, placeholder_id):  # pragma: no cov
                     pass
 
 
-async def _run_background_task(incoming, adapter, conn, task_desc: str):  # pragma: no cover
-    """后台执行 CC 任务，完成后回复。最多 3 个并发，超出排队等待。"""
+async def _run_background_task(incoming, adapter, task_desc: str):  # pragma: no cover
+    """后台执行 CC 任务，完成后回复。最多 3 个并发，超出排队等待。
+
+    使用 one_shot_query 起独立 CC 进程，与主对话完全隔离，避免
+    共享 _LiveSession 导致的 message queue 竞态。
+    """
     from brain.channels.base import OutgoingMessage
-    from brain.executor.cc import execute
+    from brain.executor.cc import one_shot_query
     from brain.session.manager import get_workspace
 
     channel_id = incoming.channel_id
@@ -416,10 +420,10 @@ async def _run_background_task(incoming, adapter, conn, task_desc: str):  # prag
     async with _BTW_SEMAPHORE:
         workspace = get_workspace(channel_id)
         try:
-            _, result_text, _meta = await execute(
+            result_text = await one_shot_query(
                 prompt=task_desc,
                 cwd=workspace,
-                channel_id=channel_id,
+                timeout=300.0,
             )
             reply = result_text if result_text else "（后台任务完成，无输出）"
             await adapter.send(OutgoingMessage(
