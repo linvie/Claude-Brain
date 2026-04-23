@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from brain.observability.analyzer import (
-    TrajectoryAnalysis,
     analyze_trajectory,
     format_summary,
 )
