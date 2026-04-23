@@ -125,7 +125,7 @@ def dispatch(conn: sqlite3.Connection, task: dict):
     update_status(task_id, "Running")
 
     # 7. 启动 CC
-    pid = launch_cc(workspace, task_type)
+    pid = launch_cc(workspace, task_type, task_id=task_id)
 
     # 8. 记录到 SQLite
     task_name = task.get("task_name", "")
