@@ -191,6 +191,108 @@ def cmd_logs(name: str = "brain"):  # pragma: no cover
     os.execvp("tail", ["tail", "-f", str(log_file)])
 
 
+def cmd_traj(args: list[str]):
+    """Trajectory analysis subcommands: list, summary, show."""
+    from brain.config import DATA_DIR as _data_dir
+
+    traj_dir = _data_dir / "trajectories"
+    sub = args[0] if args else ""
+
+    if sub == "list":
+        _traj_list(traj_dir)
+    elif sub == "summary":
+        if len(args) < 2:
+            print("用法: ccbrain traj summary <task_id>")
+            sys.exit(1)
+        _traj_summary(traj_dir, args[1])
+    elif sub == "show":
+        limit = None
+        task_id = None
+        i = 1
+        while i < len(args):
+            if args[i] == "--limit" and i + 1 < len(args):
+                limit = int(args[i + 1])
+                i += 2
+            elif task_id is None:
+                task_id = args[i]
+                i += 1
+            else:
+                i += 1
+        if not task_id:
+            print("用法: ccbrain traj show <task_id> [--limit N]")
+            sys.exit(1)
+        _traj_show(traj_dir, task_id, limit)
+    else:
+        print("""\
+用法: ccbrain traj <subcommand>
+
+子命令:
+  list                          列出所有 trajectory 文件
+  summary <task_id>             输出人类可读摘要
+  show <task_id> [--limit N]    逐行打印事件""")
+
+
+def _traj_list(traj_dir: Path):
+    if not traj_dir.exists():
+        print(f"Trajectory 目录不存在: {traj_dir}")
+        return
+    files = sorted(traj_dir.glob("*.jsonl"))
+    if not files:
+        print("无 trajectory 文件")
+        return
+    print(f"{'Task ID':<40} {'Size':>10} {'Events':>8}")
+    print("-" * 62)
+    for f in files:
+        task_id = f.stem
+        size = f.stat().st_size
+        # Count lines (events)
+        count = 0
+        with open(f) as fh:
+            for line in fh:
+                if line.strip():
+                    count += 1
+        if size >= 1024 * 1024:
+            size_str = f"{size / 1024 / 1024:.1f} MB"
+        elif size >= 1024:
+            size_str = f"{size / 1024:.1f} KB"
+        else:
+            size_str = f"{size} B"
+        print(f"{task_id:<40} {size_str:>10} {count:>8}")
+
+
+def _traj_summary(traj_dir: Path, task_id: str):
+    path = traj_dir / f"{task_id}.jsonl"
+    if not path.exists():
+        print(f"文件不存在: {path}")
+        sys.exit(1)
+    from brain.observability.analyzer import analyze_trajectory, format_summary
+    from brain.observability.reader import read_trajectory
+
+    result = read_trajectory(path)
+    analysis = analyze_trajectory(result.events, result.bad_lines)
+    print(format_summary(analysis))
+
+
+def _traj_show(traj_dir: Path, task_id: str, limit: int | None):
+    path = traj_dir / f"{task_id}.jsonl"
+    if not path.exists():
+        print(f"文件不存在: {path}")
+        sys.exit(1)
+    from brain.observability.reader import iter_trajectory
+
+    count = 0
+    for ev in iter_trajectory(path):
+        if limit is not None and count >= limit:
+            break
+        ts = ev.get("ts", "?")
+        tool = ev.get("tool", ev.get("event", "?"))
+        preview = (ev.get("input_preview", "") or "")[:80]
+        exit_code = ev.get("exit_code")
+        suffix = f"  exit={exit_code}" if exit_code is not None else ""
+        print(f"[{ts}] {tool:<20} {preview}{suffix}")
+        count += 1
+
+
 def usage():  # pragma: no cover
     print(f"""\
 CCBrain — Claude Code Brain Daemon
@@ -208,6 +310,7 @@ CCBrain — Claude Code Brain Daemon
   restart           重启服务
   status            查看运行状态
   logs [name]       查看日志（brain, scheduler, cc, notion, feishu, session, memory）
+  traj <sub>        Trajectory 分析（list/summary/show）
 
 数据目录: {DATA_DIR}""")
 
@@ -328,6 +431,7 @@ def main():  # pragma: no cover
         case "restart":   cmd_restart()
         case "status":    cmd_status()
         case "logs":      cmd_logs(args[1] if len(args) > 1 else "brain")
+        case "traj":      cmd_traj(args[1:])
         case _:           usage()
 
 
