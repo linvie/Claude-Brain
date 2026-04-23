@@ -11,7 +11,7 @@ from brain.config import CONFIG
 log_cc = logging.getLogger("brain.cc")
 
 
-def launch_cc(workspace: Path, task_type: str) -> int:
+def launch_cc(workspace: Path, task_type: str, *, task_id: str = "") -> int:
     """启动 CC 进程，返回 PID。
 
     CC 通过 CLAUDE.md 知道要读 inbox.json，不需要在命令行传递全部内容。
@@ -36,11 +36,16 @@ def launch_cc(workspace: Path, task_type: str) -> int:
     if disallowed:
         log_cc.debug("disallowed_tools: %s", disallowed)
 
+    env = os.environ.copy()
+    if task_id:
+        env["CCBRAIN_TASK_ID"] = task_id
+
     proc = subprocess.Popen(
         cmd,
         cwd=workspace,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        env=env,
     )
     log_cc.info("%s CC 已启动: PID=%d, workspace=%s", task_type, proc.pid, workspace)
     return proc.pid
