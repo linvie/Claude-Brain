@@ -73,7 +73,7 @@ def ensure_setup_task(conn: sqlite3.Connection, project_id: str, project_info: d
 
 
 def dispatch(conn: sqlite3.Connection, task: dict):
-    """分发一个 Ready 任务。"""
+    """分发一个可拾取的任务（Ready 或 scheduled Pending）。"""
     task_id = task["task_id"]
     project_id = task["project_id"]
     task_type = task.get("task_type", "executor")
