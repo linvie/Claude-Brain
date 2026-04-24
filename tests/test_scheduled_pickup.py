@@ -1,14 +1,10 @@
 """scheduled_at 定时拾取功能测试。"""
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from brain.infra.db import all_done, init_db
+from brain.infra.db import init_db
 from brain.integrations.notion import NotionClient
-
 
 # ---------------------------------------------------------------------------
 # Helpers
