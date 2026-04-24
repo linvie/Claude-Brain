@@ -66,13 +66,37 @@ class NotionClient:
     # ------------------------------------------------------------------
 
     def query_ready_tasks(self) -> list[dict]:
-        """查询 Task 数据库中 status=Ready 的任务，按 priority 排序返回 task dict 列表。"""
-        log.info("查询 Ready 任务: db=%s", self.task_db_id)
+        """查询可拾取的任务：status=Ready 或 (status=Pending AND scheduled_at <= now)。"""
+        log.info("查询可拾取任务: db=%s", self.task_db_id)
+
+        from datetime import datetime, timezone
+
+        now_iso = datetime.now(timezone.utc).isoformat()
 
         payload = {
             "filter": {
-                "property": "status",
-                "select": {"equals": "Ready"},
+                "or": [
+                    {
+                        "property": "status",
+                        "select": {"equals": "Ready"},
+                    },
+                    {
+                        "and": [
+                            {
+                                "property": "status",
+                                "select": {"equals": "Pending"},
+                            },
+                            {
+                                "property": "scheduled_at",
+                                "date": {"is_not_empty": True},
+                            },
+                            {
+                                "property": "scheduled_at",
+                                "date": {"on_or_before": now_iso},
+                            },
+                        ],
+                    },
+                ],
             },
             "sorts": [
                 {"property": "priority", "direction": "ascending"},
@@ -86,7 +110,7 @@ class NotionClient:
         )
         resp.raise_for_status()
         pages = resp.json().get("results", [])
-        log.info("查询完成，返回 %d 个 Ready 任务", len(pages))
+        log.info("查询完成，返回 %d 个可拾取任务", len(pages))
 
         tasks = []
         for page in pages:
@@ -331,6 +355,7 @@ class NotionClient:
             description = self._extract_rich_text(props.get("description", {}))
             task_type = self._extract_select(props.get("task_type", {}))
             priority = self._extract_select(props.get("priority", {}))
+            status = self._extract_select(props.get("status", {}))
 
             # project relation
             project_rel = props.get("project", {}).get("relation", [])
@@ -342,6 +367,9 @@ class NotionClient:
             # blocked_by relation
             blocked_by_rel = props.get("blocked_by", {}).get("relation", [])
             blocked_by = [r["id"] for r in blocked_by_rel]
+
+            # scheduled_at date
+            scheduled_at = self._extract_date(props.get("scheduled_at", {}))
 
             # 获取 project 的 repo_url
             repo_url = None
@@ -361,8 +389,10 @@ class NotionClient:
                 "blocked_by": blocked_by,
                 "priority": priority or "Normal",
                 "repo_url": repo_url,
+                "status": status or "Pending",
+                "scheduled_at": scheduled_at,
             }
-            log.debug("解析任务: %s (%s), type=%s, priority=%s", task_name, task_id, task_type, priority)
+            log.debug("解析任务: %s (%s), type=%s, priority=%s, status=%s", task_name, task_id, task_type, priority, status)
             return task
 
         except (KeyError, IndexError, TypeError) as e:
@@ -388,6 +418,14 @@ class NotionClient:
     def _extract_url(prop: dict) -> str | None:
         return prop.get("url")
 
+    @staticmethod
+    def _extract_date(prop: dict) -> str | None:
+        """提取 Notion date 属性的 start 值（ISO8601 字符串）。"""
+        date_obj = prop.get("date")
+        if date_obj:
+            return date_obj.get("start")
+        return None
+
 
 # ---------------------------------------------------------------------------
 # 模块级客户端实例
@@ -407,11 +445,11 @@ _client = NotionClient(
 
 
 def fetch_ready_tasks() -> list[dict]:
-    """从 Notion Task 数据库获取所有 status=Ready 的任务，按 priority 排序。"""
+    """从 Notion Task 数据库获取所有可拾取的任务（Ready 或 scheduled Pending），按 priority 排序。"""
     try:
         return _call_with_retry(_client.query_ready_tasks)
     except Exception as e:
-        log.error("查询 Ready 任务失败: %s", e)
+        log.error("查询可拾取任务失败: %s", e)
         return []
 
 
