@@ -27,6 +27,7 @@
 | blocked_by | Relation（self） | 依赖的前置任务 |
 | status | Select | `Pending` / `Ready` / `Running` / `Done` / `Blocked` / `Timeout` |
 | priority | Select | `High` / `Normal` / `Low` |
+| scheduled_at | Date | 定时拾取时间。为空则不受时间约束；非空时 Pending 任务在该时间到达后自动被调度拾取 |
 | execution_log | Text | 执行日志（时间戳 + 进度摘要） |
 
 ## 通信协议
@@ -63,6 +64,10 @@ Brain 与 CC 通过 workspace 中的 JSON 文件通信：
 ## 任务类型说明
 - **planner**：将需求拆解为 Task 列表，有 Notion 写权限，无 Bash
 - **executor**：执行具体开发任务，有完整文件和 Shell 工具，无 Notion 权限
+
+## 调度规则
+- 任务可被拾取的条件：(status=Ready) 或 (status=Pending 且 scheduled_at 非空且 scheduled_at ≤ 当前时间)
+- 额外约束：blocked_by 中的所有前置任务必须 Done，且同 project 无运行中任务
 
 ## 重要约束
 - 同一 project 的任务串行执行

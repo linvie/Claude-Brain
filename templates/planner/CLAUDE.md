@@ -192,6 +192,12 @@ Brain 注入的配置信息，只读：
 "blocked_by": {"relation": [{"id": "<task_A_page_id>"}]}
 ```
 
+如果需要定时执行（如半夜批量任务），设置 `scheduled_at`：
+```json
+"scheduled_at": {"date": {"start": "2026-04-25T02:00:00+08:00"}}
+```
+设置了 `scheduled_at` 的 Pending 任务会在该时间到达后自动被调度拾取，无需手动改为 Ready。
+
 ## outbox.json 写入规范（强制）
 
 **详细格式参见 `OUTBOX_FORMAT.md`。**
